@@ -8,7 +8,6 @@ import pyodbc
 import configparser
 from datetime import datetime
 from cryptography.fernet import Fernet
-from pyodbc import DatabaseError
 
 
 def welcome():
@@ -25,50 +24,10 @@ def welcome():
           "# Step 1: Make sure the template_hosts.csv is renamed to hosts.csv and contains IP adresses or       #\n"
           "#         hostnames otherwise the script wont start                                                  #\n")
     time.sleep(10)
+
+
 welcome()
 
-
-def queries(table):
-    # Ensure that the table name is valid
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
-        raise ValueError(f"Invalid table name: {table}")
-
-    query = f"""
-    IF NOT EXISTS (
-        SELECT * FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_NAME = '{table}' AND TABLE_SCHEMA = 'dbo'
-    )
-    BEGIN
-        CREATE TABLE dbo.{table} (
-            name VARCHAR(90),
-            publisher VARCHAR(90),
-            installDate DATE,
-            programSize INT,
-            version NVARCHAR(50),
-            hostname VARCHAR(80),
-            isNew BIT NOT NULL
-        );
-    END
-    """
-    return query
-
-
-def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.key") -> str:
-    with open(key_path, "rb") as key_file:
-        key = key_file.read()
-    fernet = Fernet(key)
-    return fernet.decrypt(encrypted_password.encode()).decode()
-
-def get_timestamp(format_var):
-    if format_var == "dmy":
-        timestamp = datetime.now().strftime("%d-%m-%Y")
-        return timestamp
-    elif format_var == "hms":
-        timestamp = datetime.now().strftime("%H-%M-%S")
-        return timestamp
-    else:
-        timestamp = datetime.now().strftime("%d-%m-%Y %H-%M-%S")
-        return timestamp
 
 class DatabaseManager:
     def __init__(self, config_file="config\\config.ini"):
@@ -78,8 +37,11 @@ class DatabaseManager:
         self.error = "[ERROR]   |"
 
         def get_logprint_info(): return f"{get_timestamp('')} | {self.info}"
+
         def get_logprint_error(): return f"{get_timestamp('')} | {self.error}"
+
         def get_logprint_debug(): return f"{get_timestamp('')} | {self.debug}"
+
         def get_logprint_warning(): return f"{get_timestamp('')} | {self.warning}"
 
         self.get_logprint_info = get_logprint_info
@@ -107,28 +69,73 @@ class DatabaseManager:
 
         self.existing_config = exists("config\\config.ini")
 
-        encrypted_pwd_ps = config.get('db', 'password')
-        self.pwd = decrypt_password(encrypted_pwd_ps)
-
-        self.host = config.get('db', 'hostname')
-        self.user = config.get('db', 'username')
-        self.db = config.get('db', 'database')
-        self.driver = config.get('db', 'driver')
-        self.connection_str = (
-            f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
-            f"SERVER={self.host},1433;"
-            f"DATABASE={self.db};"
-            f"UID={self.user};"
-            f"PWD={self.pwd};"
-            f"TrustServerCertificate=yes;"
-            f"Authentication=SqlPassword;"
-        )
         self.conn = None
-        self.backup_table = "table_prod_backup"
-        self.table_name = "table_prod"
 
+    def _initialize_db_connection(self, config_file):
+        """
+        Initializes the database connection.
+        Function reads the ``config_file`` and initializes the connection to the given database.
+        """
+        try:
+            config = configparser.ConfigParser()
+            config.read(config_file)
+
+            encrypted_pwd_db = config.get('db', 'pass')
+            self.pwd = decrypt_password(encrypted_pwd_db)
+
+            self.host = config.get('db', 'host')
+            self.user = config.get('db', 'user')
+            self.db = config.get('db', 'database')
+            self.driver = config.get('db', 'driver')
+            self.connection_str = (
+                f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
+                                                            f"SERVER={self.host},1433;"
+                                                            f"DATABASE={self.db};"
+                                                            f"UID={self.user};"
+                                                            f"PWD={self.pwd};"
+                                                            f"TrustServerCertificate=yes;"
+                                                            f"Authentication=SqlPassword;"
+            )
+
+            self.backup_table = config.get('db', 'backup-table')
+            self.table_name = config.get('db', 'prod-table')
+
+            self.connect_db()
+
+        except Exception as e:
+            self.logger.error(f"Initialization error: {e}")
+            raise
+
+    def connect_db(self):
+        """
+        Connects the service to the database.
+        :return:
+        """
+
+        try:
+            if self.driver not in ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]:
+                raise ValueError(f"Unsupported driver. {self.driver}")
+
+            self.conn = pyodbc.connect(self.connection_str)
+            self.logger.info("Database connection established successfully.")
+            self.logger.info("Driver configuration is correct.")
+            print(f"{self.get_logprint_info()} Driver configuration is correct.")
+            print(f"{self.get_logprint_info()} Connection to database {self.db} established.")
+
+        except Exception as e:
+            self.logger.error(f"The driver '{self.driver}' is not supported by this SQL-Server\n"
+                              f"Connection error: {str(e)}")
+            self.logger.error(f"Exiting program now...")
+            print(f"{self.get_logprint_error()} The driver {self.driver} is not supported by this SQL-Server\n"
+                  f"{self.get_logprint_error()} For more information read the log: {self.log_file}\n"
+                  f"{self.get_logprint_error()} Exiting program now...\n")
+            raise
 
     def dependencies_check(self):
+        """
+
+        :return:
+        """
         if self.existing_config:
             print(f"{self.get_logprint_info()} Configuration file is set.")
             self.logger.info("Test")
@@ -137,25 +144,11 @@ class DatabaseManager:
             self.logger.error("Config file is not in the expected directory!")
             exit()
 
-
-    def connect_db(self):
-        if self.driver == "ODBC Driver 17 for SQL Server" or self.driver == "ODBC Driver 18 for SQL Server":
-            print(f"{self.get_logprint_info()} Driver configuration is correct.")
-        else:
-            self.logger.error(f"The driver '{self.driver}' is not supported by this SQL-Server")
-            self.logger.error(f"Exiting program now...")
-            print(f"{self.get_logprint_error()} The driver {self.driver} is not supported by this SQL-Server\n"
-                  f"{self.get_logprint_error()} For more information read the log: {self.log_file}\n"
-                  f"{self.get_logprint_error()} Exiting program now...\n")
-
-        try:
-            self.conn = pyodbc.connect(self.connection_str)
-            self.logger.info(f"{self.get_logprint_info()} Connection to database {self.db} established successfully.")
-            print(f"{self.get_logprint_info()} Connection to database {self.db} established.")
-        except Exception as e:
-            self.logger.error(f"Error during establishing database connection: {e}")
-
     def db_disconnect(self):
+        """
+
+        :return:
+        """
         try:
             self.conn.close()
             self.logger.info(f"Connection to database {self.db} has been closed successfully.")
@@ -163,18 +156,28 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"The connection to the database {self.db} hasn't been closed successfully!")
             self.logger.error(f"Error description: {e}")
-            print(f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
+            print(
+                f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
 
             print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
 
     def insert_software(self, software_list, hostname):
+        """
+        Insert the values from the gathered JSON file into the database
+
+        ``query`` is declared as a local variable. It's not dynamic at this point, but it will be in the future
+        :var self.query:
+        :param software_list:
+        :param hostname:
+        :return:
+        """
+
         query = f"""
         INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """
 
         try:
-            is_new = 0
             cursor = self.conn.cursor()
             for item in software_list:
                 install_date_str = item.get('InstallDate')
@@ -207,7 +210,7 @@ class DatabaseManager:
                         item.get('Size'),
                         item.get('Version'),
                         hostname,
-                        is_new
+                        0
                     ))
                     self.conn.commit()
                 else:
@@ -218,19 +221,23 @@ class DatabaseManager:
                         item.get('Size'),
                         item.get('Version'),
                         hostname,
-                        is_new
+                        0
                     ))
-                    cursor.commit()
+                    self.conn.commit()
 
             print(f"{self.get_logprint_info()} Software-list has been written into database {self.db}")
             self.logger.info(f"Software-list has been written into database {self.db}")
 
         except Exception as e:
-
+            self.conn.rollback()
             print(f"An Error has occured while inserting data into database: {e}")
-            self.logger.info(f"An Error has occured while inserting data into database: {e}")
+            self.logger.error(f"An Error has occured while inserting data into database: {e}")
 
     def backup_database_table(self):
+        """
+
+        :return:
+        """
         copy_query = f"""
             INSERT INTO {self.backup_table} (name, publisher, installDate, programSize, hostname, isNew)
             SELECT name, publisher, installDate, programSize, hostname, isNew
@@ -259,6 +266,10 @@ class DatabaseManager:
             raise RuntimeError from e
 
     def reset_data_table(self):
+        """
+
+        :return:
+        """
         if not Exception:
             # Defined SQL-Query to update all old entries to keep track of the new and old data
             # TODO: Add Exception Handling, to stop the script.
@@ -272,6 +283,75 @@ class DatabaseManager:
             except Exception as e:
                 print(f"[ERROR] The script ran into an error: {e}")
                 quit()
+
+
+def queries(table):
+    """
+    Generates sql-query. Creates a new table if the given name is not existing
+
+    :param table:
+    :return: ``str``
+    """
+    # Ensure that the table name is valid
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+        raise ValueError(f"Invalid table name: {table}")
+
+    query = f"""
+    IF NOT EXISTS (
+        SELECT * FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME = '{table}' AND TABLE_SCHEMA = 'dbo'
+    )
+    BEGIN
+        CREATE TABLE dbo.{table} (
+            name VARCHAR(90),
+            publisher VARCHAR(90),
+            installDate DATE,
+            programSize INT,
+            version NVARCHAR(50),
+            hostname VARCHAR(80),
+            isNew BIT NOT NULL
+        );
+    END
+    """
+    return query
+
+
+def get_timestamp(format_var):
+    """
+    Supportive function for timestamp in custom formatting
+
+    ``format_var`` == "dmy" output = ``01-01-1970``
+
+    ``format_var`` == "hms" output = ``12-30-22``
+
+    :param format_var:
+    :return: str
+    """
+    if format_var == "dmy":
+        timestamp = datetime.now().strftime("%d-%m-%Y")
+        return timestamp
+    elif format_var == "hms":
+        timestamp = datetime.now().strftime("%H-%M-%S")
+        return timestamp
+    return datetime.now().strftime("%d-%m-%Y %H-%M-%S")
+
+
+def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.key") -> str:
+    """
+    Uses the ``secret.key`` to decrypt the previously encrypted password.
+
+    ``key_path`` folder path where the secret.key is located
+
+    :param encrypted_password:
+    :param key_path:
+    :return: str
+    """
+
+    with open(key_path, "rb") as key_file:
+        key = key_file.read()
+    fernet = Fernet(key)
+    return fernet.decrypt(encrypted_password.encode()).decode()
+
 
 log = DatabaseManager()
 log.dependencies_check()

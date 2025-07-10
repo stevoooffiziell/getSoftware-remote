@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Software Inventory Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Software Inventory Dashboard</h1>
+
+    <div>
+        <button id="runBtn">Run Inventory Now</button>
+        <a href="/settings"><button>Settings</button></a>
+    </div>
+
+    <div>
+        <h2>Live Logs</h2>
+        <pre id="liveLogs"></pre>
+    </div>
+
+    <div>
+        <h2>Statistics</h2>
+        <canvas id="statsChart" width="400" height="200"></canvas>
+    </div>
+
+    <script>
+        const runBtn = document.getElementById('runBtn');
+        const liveLogs = document.getElementById('liveLogs');
+
+        runBtn.addEventListener('click', () => {
+            fetch('/run-inventory', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'started') {
+                        liveLogs.textContent = "Starting inventory process...";
+                        updateLogs();
+                    }
+                });
+        });
+
+        function updateLogs() {
+            fetch('/logs')
+                .then(response => response.json())
+                .then(data => {
+                    liveLogs.textContent = data.current;
+                    setTimeout(updateLogs, 2000);  // Alle 2 Sekunden aktualisieren
+                });
+        }
+
+        // Initiale Aktualisierung
+        updateLogs();
+    </script>
+</body>
+</html>
