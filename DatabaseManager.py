@@ -3,6 +3,8 @@ import logging
 import os
 import threading
 from os.path import exists
+from types import NoneType
+
 import pyodbc
 import configparser
 from datetime import datetime
@@ -14,6 +16,7 @@ db_lock = threading.Lock()
 
 class DatabaseManager:
     _instance = None
+    _initialized = False
 
     def __new__(cls, *args, **kwargs):
         """
@@ -35,12 +38,40 @@ class DatabaseManager:
 
         :param config_file:
         """
+        if self._initialized:
+            return
 
         config = configparser.ConfigParser()
         config.read(config_file)
 
-        if self._initialized:
-            return
+        encrypted_pwd_db = config.get('db', 'pass')
+        self.pwd = decrypt_password(encrypted_pwd_db)
+
+        host = config.get('db', 'host')
+        self.host = host
+
+        user = config.get('db', 'user')
+        self.user = user
+
+        db = config.get('db', 'database')
+        self.db = db
+
+        driver = config.get('db', 'driver')
+        self.driver = driver
+
+        connection_str =(
+                f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
+                                                            f"SERVER={self.host},1433;"
+                                                            f"DATABASE={self.db};"
+                                                            f"UID={self.user};"
+                                                            f"PWD={self.pwd};"
+                                                            f"TrustServerCertificate=yes;"
+                                                            f"Authentication=SqlPassword;"
+        )
+        self.connection_str = connection_str
+
+        self.backup_table = config.get('db', 'backup-table')
+        self.table_name = config.get('db', 'prod-table')
 
         # Zeitstempel für Logs
         self.time_dmy = self.get_timestamp("dmy")
@@ -60,10 +91,11 @@ class DatabaseManager:
 
         # Database-configuration
         self._load_config()
-        self._initialize_db_connection(self.config_file)
 
+        self._initialize_db_connection(self.config_file)
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
+        print(f"{self.get_logprint_info()} Database connection established.")
 
 
     def _init_logger(self):
@@ -123,27 +155,6 @@ class DatabaseManager:
         Function reads the ``config_file`` and initializes the connection to the given database.
         """
         try:
-            config = configparser.ConfigParser()
-            config.read(config_file)
-
-            encrypted_pwd_db = config.get('db', 'pass')
-            self.pwd = decrypt_password(encrypted_pwd_db)
-
-            self.host = config.get('db', 'host')
-            self.user = config.get('db', 'user')
-            self.db = config.get('db', 'database')
-            self.driver = config.get('db', 'driver')
-            self.connection_str = (
-                f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
-                                                            f"SERVER={self.host},1433;"
-                                                            f"DATABASE={self.db};"
-                                                            f"UID={self.user};"
-                                                            f"PWD={self.pwd};"
-                                                            f"TrustServerCertificate=yes;"
-                                                            f"Authentication=SqlPassword;"
-            )
-            self.backup_table = config.get('db', 'backup-table')
-            self.table_name = config.get('db', 'prod-table')
             self.connect_db()
         except Exception as e:
             self.logger.error(f"Initialization error: {e}")
@@ -163,7 +174,6 @@ class DatabaseManager:
                 try:
                     # Prüfe ob Verbindung noch gültig
                     self.conn.execute("SELECT * FROM " + self.table_name)
-                    self.conn.close()
                     self.logger.info("Using existing database connection")
                     return
                 except pyodbc.Error:
@@ -176,13 +186,10 @@ class DatabaseManager:
             if self.driver not in available_drivers:
                 raise ValueError(
                     f"Driver '{self.driver}' not installed. Available drivers: {available_drivers}")
-
-            self.conn = pyodbc.connect(self.connection_str, timeout=30)
             self.conn.autocommit = False
 
             self.logger.info("Database connection established successfully")
             print(f"{self.get_logprint_info()} Connected to database {self.db}")
-
         except Exception as e:
             self.logger.error(f"Connection failed: {str(e)}")
             print(f"{self.get_logprint_error()} Database connection failed: {str(e)}")
@@ -191,7 +198,7 @@ class DatabaseManager:
 
     def dependencies_check(self):
         """
-        Checks if configuration file is existing
+        Checks if a configuration file is existing
 
         :return:
         """
@@ -216,17 +223,7 @@ class DatabaseManager:
             self.logger.error(f"Error description: {e}")
             print(
                 f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
-
             print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
-
-    def __enter__(self):
-        """
-        context manager: connects automatically
-
-        :return:
-        """
-        self._initialize_db_connection(self.config_file)
-        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
@@ -237,8 +234,16 @@ class DatabaseManager:
         :param exc_tb:
         :return:
         """
-        if self.conn:
+        try:
             self.conn.close()
+            self.logger.info(f"Connection to database {self.db} has been closed successfully.")
+            print(f"{self.get_logprint_info()} Connection to database {self.db} has been closed successfully")
+        except Exception as e:
+            self.logger.error(f"The connection to the database {self.db} hasn't been closed successfully!")
+            self.logger.error(f"Error description: {e}")
+            print(
+                f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
+            print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
 
     def ensure_tables_exist(self):
         """
@@ -252,12 +257,13 @@ class DatabaseManager:
                 self.conn.execute(queries(self.table_name))
                 self.logger.info(f"Checked/Created table {self.table_name}")
 
+                self.conn.commit()
+
                 # backup table
                 self.conn.execute(queries(self.backup_table))
                 self.logger.info(f"Checked/Created table {self.backup_table}")
 
                 self.conn.commit()
-                self.conn.close()
 
         except Exception as e:
             self.logger.error(f"Table creation failed: {str(e)}")
@@ -277,7 +283,7 @@ class DatabaseManager:
         try:
             with db_lock:  # Thread-security
                 # Need to reconnect?
-
+                self.connect_db()
                 # Ensure that tables exist
                 # self.ensure_tables_exist()
 
@@ -286,10 +292,14 @@ class DatabaseManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """
 
-                cursor = self.conn.cursor()
                 insert_count = 0
 
                 for item in software_list:
+                    name = item.get('Name') or 'Unknown'
+                    publisher = item.get('Publisher') or ''
+                    install_date_str = item.get('InstallDate')
+                    size = item.get('Size') or 0
+                    version = item.get('Version') or '0.0.0'
                     # process installDate
                     install_date = None
                     if install_date_str := item.get('InstallDate'):
@@ -310,14 +320,14 @@ class DatabaseManager:
                         publisher = "Interflex Datensysteme GmbH & Co. KG"
 
                     # insert data
-                    cursor.execute(query, (
-                        item.get('Name', 'Unknown'),
+                    self.conn.execute(query, (
+                        name,
                         publisher[:90],  # Auf maximale Länge kürzen
                         install_date,
-                        item.get('Size', 0),
-                        item.get('Version', '0.0.0')[:50],
+                        size,
+                        version[:50],
                         hostname,
-                        0  # isNew = False
+                        True  # isNew = True
                     ))
                     insert_count += 1
 
@@ -338,7 +348,6 @@ class DatabaseManager:
         """
         try:
             with db_lock:
-                self.connect_db()
                 self.ensure_tables_exist()
 
                 copy_query = f"""
@@ -347,8 +356,7 @@ class DatabaseManager:
                         FROM {self.table_name}
                         """
 
-                cursor = self.conn.cursor()
-                cursor.execute(copy_query)
+                self.conn.execute(copy_query)
                 self.conn.commit()
 
                 self.logger.info(f"Backup created in {self.backup_table}")
@@ -371,8 +379,7 @@ class DatabaseManager:
 
                 update_query = f"UPDATE {self.table_name} SET isNew = 1;"
 
-                cursor = self.conn.cursor()
-                cursor.execute(update_query)
+                self.conn.execute(update_query)
                 self.conn.commit()
 
                 self.logger.info("Reset isNew flags")

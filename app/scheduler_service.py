@@ -5,6 +5,8 @@ import threading
 import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
+
+from globals import service_active
 from testMain import main as inventory_main
 from datetime import datetime
 
@@ -46,6 +48,10 @@ def run_inventory():
 
     :return:
     """
+    if not service_active.is_set():
+        logger.info("Inventur übersprungen - Service deaktiviert")
+        return False
+
     try:
         logger.info(f"Starting inventory at {datetime.now()}")
         inventory_main()
@@ -63,9 +69,14 @@ def periodic_inventory(interval_weeks=2):
     :param interval_weeks:
     """
     while True:
-        run_inventory()
-        sleep_seconds = interval_weeks * 7 * 24 * 3600
-        logger.info(f"Nächste Inventur in {interval_weeks} Wochen")
+        if service_active.is_set():
+            run_inventory()
+            sleep_seconds = interval_weeks * 7 * 24 * 3600
+            logger.info(f"Nächste Inventur in {interval_weeks} Wochen")
+        else:
+            sleep_seconds = 10  # Kurzes Intervall bei deaktiviertem Service
+            logger.info("Service deaktiviert - Warte auf Aktivierung")
+
         time.sleep(sleep_seconds)
 
 
