@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import time
 import threading
 import socket
 import platform
-from datetime import datetime
-
 import flask
 import pyodbc
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -52,36 +52,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-
-def get_db_connection():
-    """Stellt eine sichere Verbindung zur MS SQL-Datenbank her"""
-    config = {
-        'host': db_manager.host,
-        'user': db_manager.user,
-        'pwd': db_manager.pwd,
-        'db': db_manager.db,
-        'driver': db_manager.driver
-    }
-
-    connection_str = (
-        f"DRIVER={{{config['driver']}}};"
-        f"SERVER={config['host']},1433;"
-        f"DATABASE={config['db']};"
-        f"UID={config['user']};"
-        f"PWD={config['pwd']};"
-        f"TrustServerCertificate=yes;"
-        f"Authentication=SqlPassword;"
-    )
-
-    try:
-        conn = pyodbc.connect(connection_str)
-        logging.info("Datenbankverbindung erfolgreich hergestellt")
-        return conn
-    except Exception as e:
-        logging.error(f"Datenbankverbindungsfehler: {str(e)}")
-        raise
-
-
 # Systeminformationen
 system_info = {
     'hostname': socket.gethostname(),
@@ -103,6 +73,7 @@ if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_sh
 
 @app.route('/')
 def dashboard():
+    """Haupt-Dashboard-Seite"""
     return render_template('dashboard.html')
 
 
@@ -123,39 +94,26 @@ def log_request(action):
 @app.route('/inventory', methods=['GET'])
 @auth.login_required
 def get_inventory():
+    """Zeigt die Software-Inventarliste an"""
     log_request("INVENTORY_ACCESS")
 
-    # Sortierparameter verarbeiten
-    sort_by = request.args.get('sort', 'hostname')
-    valid_columns = ['hostname', 'id', 'software_name', 'last_updated']
-
-    # Sicher gegen SQL-Injection
-    if sort_by.lower() not in valid_columns:
-        sort_by = 'hostname'
-
     try:
-        conn = get_db_connection()
+        conn = db_manager.get_connection()
         cursor = conn.cursor()
-
-        # Parameterisiertes Query mit Whitelisting
-        query = f"SELECT * FROM software_inventory ORDER BY {sort_by}"
-        cursor.execute(query)
+        cursor.execute("SELECT * FROM software_inventory ORDER BY hostname, name")
 
         # Ergebnisse in Dictionary konvertieren
         columns = [column[0] for column in cursor.description]
-        results = [
+        inventory = [
             dict(zip(columns, row))
             for row in cursor.fetchall()
         ]
 
-        return jsonify(results)
+        return render_template('inventory.html', inventory=inventory)
 
     except Exception as e:
         logging.error(f"Inventory-Abfragefehler: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if 'conn' in locals():
-            conn.close()
+        return render_template('error.html', error=str(e)), 500
 
 
 @app.route('/run-inventory', methods=['POST'])
@@ -177,6 +135,9 @@ def trigger_inventory():
             from testMain import main as run_inventory
             run_inventory()
 
+            # Letzten Lauf speichern
+            db_manager.set_metadata("last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
             # Erfolgsmeldung
             execution_logs["current"] += f"\n{datetime.now()} - Inventory completed successfully"
             execution_logs["history"].append({
@@ -195,7 +156,7 @@ def trigger_inventory():
             })
 
     # Prüfen, ob bereits ein Inventurlauf aktiv ist
-    if any(t.name == "inventory_thread" for t in threading.enumerate()):
+    if any(t.name == "manual_inventory_thread" for t in threading.enumerate()):
         return jsonify({
             "status": "error",
             "message": "Inventory is already running"
@@ -230,6 +191,7 @@ def start_service():
 @app.route('/logs', methods=['GET'])
 @auth.login_required
 def show_logs():
+    """Zeigt Logdateien an"""
     log_request("LOGS_ACCESS")
 
     requested_log = request.args.get('file')
@@ -241,26 +203,17 @@ def show_logs():
     if requested_log:
         # Sicherheitsprüfung: Nur Log-Dateien aus dem Verzeichnis
         if requested_log not in log_files and requested_log != 'app.log':
-            return "Log-Datei nicht gefunden", 404
+            return render_template('error.html', error="Log-Datei nicht gefunden"), 404
 
         try:
             with open(os.path.join(LOG_DIR, requested_log), 'r') as f:
                 content = f.read()
-            return f"<pre>{content}</pre>"
+            return render_template('log_viewer.html', log_content=content, log_file=requested_log)
         except Exception as e:
             logging.error(f"Log-Lesefehler: {str(e)}")
-            return "Fehler beim Lesen der Log-Datei", 500
+            return render_template('error.html', error="Fehler beim Lesen der Log-Datei"), 500
 
-    # HTML für Log-Auswahl
-    return render_template_string('''
-        <h1>Verfügbare Logdateien</h1>
-        <ul>
-            {% for log in logs %}
-                <li><a href="/logs?file={{ log }}">{{ log }}</a></li>
-            {% endfor %}
-        </ul>
-        <p>Anwendungslogs: <a href="/logs?file=app.log">app.log</a></p>
-    ''', logs=log_files)
+    return render_template('logs.html', logs=log_files)
 
 
 @app.route('/status')
@@ -275,32 +228,50 @@ def service_status():
     minutes, seconds = divmod(remainder, 60)
     uptime_str = f"{days} Tage, {hours} Stunden"
 
+    # Letzten Lauf abrufen
+    last_run = db_manager.get_metadata("last_run") or "Noch nicht durchgeführt"
+    interval_weeks = int(db_manager.get_metadata("interval_weeks") or 2)
+
+    # Nächsten Lauf berechnen
+    next_run = "Unbekannt"
+    if last_run != "Noch nicht durchgeführt":
+        last_run_dt = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S")
+        next_run_dt = last_run_dt + timedelta(weeks=interval_weeks)
+        next_run = next_run_dt.strftime("%Y-%m-%d %H:%M")
+
     return render_template("status.html",
                            inventory_running=inventory_running,
                            service_active=service_active.is_set(),
                            system_info=system_info,
                            uptime=uptime_str,
-                           last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"))
+                           last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"),
+                           last_run=last_run,
+                           next_run=next_run,
+                           interval_weeks=interval_weeks)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
 @auth.login_required
 def settings():
     """Einstellungsseite für Anpassungen"""
+    interval_weeks = int(db_manager.get_metadata("interval_weeks") or 2)
+
     if request.method == 'POST':
         try:
-            new_interval = int(request.form.get('interval', 2))
-            # Hier Intervall aktualisieren
-            return jsonify({
-                "status": "success",
-                "message": f"Interval set to {new_interval} weeks"
-            })
+            new_interval = int(request.form.get('interval', interval_weeks))
+            if new_interval < 1:
+                raise ValueError("Intervall muss mindestens 1 Woche betragen")
+
+            db_manager.set_metadata("interval_weeks", str(new_interval))
+            return render_template('settings.html',
+                                   interval=new_interval,
+                                   message=f"Intervall auf {new_interval} Wochen gesetzt")
         except Exception as e:
-            return jsonify({
-                "status": "error",
-                "message": f"Invalid interval: {str(e)}"
-            }), 400
-    return render_template('settings.html', interval=2)
+            return render_template('settings.html',
+                                   interval=interval_weeks,
+                                   error=f"Ungültiges Intervall: {str(e)}")
+
+    return render_template('settings.html', interval=interval_weeks)
 
 
 @app.errorhandler(404)
@@ -319,10 +290,15 @@ if __name__ == '__main__':
     os.makedirs("logs", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
 
+    # Metadaten initialisieren
+    if not db_manager.get_metadata("interval_weeks"):
+        db_manager.set_metadata("interval_weeks", "2")
+
     # Starte periodischen Inventur-Thread
+    interval_weeks = int(db_manager.get_metadata("interval_weeks") or 2)
     inventory_thread = threading.Thread(
         target=periodic_inventory,
-        args=(2,),
+        args=(interval_weeks,),
         name="periodic_inventory",
         daemon=True
     )
