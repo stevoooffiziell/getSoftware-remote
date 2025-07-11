@@ -1,75 +1,136 @@
 import re
 import logging
 import os
-import time
+import threading
 from os.path import exists
-
 import pyodbc
 import configparser
 from datetime import datetime
 from cryptography.fernet import Fernet
 
 
-def welcome():
-    print("######################################################################################################\n"
-          "#                                                                                                    #\n"
-          "#                              Welcome to the network software service!                              #\n"
-          "#                                                                                                    #\n"
-          "#----------------------------------------------------------------------------------------------------#\n"
-          "#                                                                                                    #\n"
-          "# This script will identify all installed software which has been installed with a regular installer #\n"
-          "#                       To start the script read this documentation carefully.                       #\n"
-          "#                                                                                                    #\n"
-          "######################################################################################################\n"
-          "# Step 1: Make sure the template_hosts.csv is renamed to hosts.csv and contains IP adresses or       #\n"
-          "#         hostnames otherwise the script wont start                                                  #\n")
-    time.sleep(10)
-
-
-welcome()
+db_lock = threading.Lock()
 
 
 class DatabaseManager:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        """
+        Singleton-Pattern: Ensures that the instance exists only once
+
+        :param args:
+        :param kwargs:
+        """
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, config_file="config\\config.ini"):
+        """
+        Initializes database connection only once
+
+        Needs the parameter ``config_file``
+
+        :param config_file:
+        """
+
+        if self._initialized:
+            return
+
+        # Zeitstempel für Logs
+        self.time_dmy = self.get_timestamp("dmy")
+        self.time_hms = self.get_timestamp("hms")
+
+        # Logger initialisieren
+        self._init_logger()
+
+        # Konfiguration
         self.info = "[INFO]    |"
         self.debug = "[DEBUG]   |"
         self.warning = "[WARNING] |"
         self.error = "[ERROR]   |"
-
-        def get_logprint_info(): return f"{get_timestamp('')} | {self.info}"
-
-        def get_logprint_error(): return f"{get_timestamp('')} | {self.error}"
-
-        def get_logprint_debug(): return f"{get_timestamp('')} | {self.debug}"
-
-        def get_logprint_warning(): return f"{get_timestamp('')} | {self.warning}"
-
-        self.get_logprint_info = get_logprint_info
-        self.get_logprint_debug = get_logprint_debug
-        self.get_logprint_warning = get_logprint_warning
-        self.get_logprint_error = get_logprint_error
-
         self.config_file = config_file
+        self.existing_config = exists(config_file)
+        self.conn = None
 
-        self.time_dmy = get_timestamp("dmy")
-        self.time_hms = get_timestamp("hms")
+        # Database-configuration
+        self._load_config()
+
+        self._initialized = True
+        self.logger.info("DatabaseManager initialized")
+
+    def _init_logger(self):
         self.log_file = f'logs\\{self.time_dmy}_{self.time_hms}-dbmanager.log'
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
 
-        # Configure Logger
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger('DatabaseManager')
+        self.logger.setLevel(logging.INFO)
+
+        # Add only one Handler if none exists
         if not self.logger.handlers:
             file_handler = logging.FileHandler(self.log_file)
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
 
-        config = configparser.ConfigParser()
-        config.read(config_file)
+    @staticmethod
+    def get_timestamp(format_var):
+        """Gibt formatierte Zeitstempel zurück"""
+        now = datetime.now()
+        if format_var == "dmy":
+            return now.strftime("%d-%m-%Y")
+        elif format_var == "hms":
+            return now.strftime("%H-%M-%S")
+        return now.strftime("%d-%m-%Y %H-%M-%S")
 
-        self.existing_config = exists("config\\config.ini")
+    def get_logprint_info(self):
+        return f"{self.get_timestamp('')} | {self.info}"
 
-        self.conn = None
+    def get_logprint_error(self):
+        return f"{self.get_timestamp('')} | {self.error}"
+
+    def get_logprint_debug(self):
+        return f"{self.get_timestamp('')} | {self.debug}"
+
+    def get_logprint_warning(self):
+        return f"{self.get_timestamp('')} | {self.warning}"
+
+    def _load_config(self):
+        """
+        Loads the configuration from the given config.ini file
+
+        :return:
+        """
+        try:
+            config = configparser.ConfigParser()
+            config.read(self.config_file)
+
+            encrypted_pwd_db = config.get('db', 'pass')
+            self.pwd = decrypt_password(encrypted_pwd_db)
+
+            self.host = config.get('db', 'host')
+            self.user = config.get('db', 'user')
+            self.db = config.get('db', 'database')
+            self.driver = config.get('db', 'driver')
+            self.backup_table = config.get('db', 'backup-table')
+            self.table_name = config.get('db', 'prod-table')
+
+            self.connection_str = (
+                f"DRIVER={{{self.driver}}};"
+                f"SERVER={self.host},1433;"
+                f"DATABASE={self.db};"
+                f"UID={self.user};"
+                f"PWD={self.pwd};"
+                f"TrustServerCertificate=yes;"
+                f"Authentication=SqlPassword;"
+            )
+
+            self.logger.info("Configuration loaded successfully")
+        except Exception as e:
+            self.logger.error(f"Error loading configuration: {str(e)}")
+            raise RuntimeError(f"Configuration error: {str(e)}")
 
     def _initialize_db_connection(self, config_file):
         """
@@ -96,15 +157,12 @@ class DatabaseManager:
                                                             f"TrustServerCertificate=yes;"
                                                             f"Authentication=SqlPassword;"
             )
-
             self.backup_table = config.get('db', 'backup-table')
             self.table_name = config.get('db', 'prod-table')
-
             self.connect_db()
-
         except Exception as e:
             self.logger.error(f"Initialization error: {e}")
-            raise
+            raise RuntimeError("DB initialization failed!")
 
     def connect_db(self):
         """
@@ -112,42 +170,57 @@ class DatabaseManager:
         :return:
         """
 
-        try:
-            if self.driver not in ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]:
-                raise ValueError(f"Unsupported driver. {self.driver}")
+        available_drivers = ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
 
-            self.conn = pyodbc.connect(self.connection_str)
-            self.logger.info("Database connection established successfully.")
-            self.logger.info("Driver configuration is correct.")
-            print(f"{self.get_logprint_info()} Driver configuration is correct.")
-            print(f"{self.get_logprint_info()} Connection to database {self.db} established.")
+        try:
+            if self.conn:
+                try:
+                    # Prüfe ob Verbindung noch gültig
+                    cursor = self.conn.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.close()
+                    self.logger.info("Using existing database connection")
+                    return
+                except pyodbc.Error:
+                    self.logger.warning("Existing connection invalid, reconnecting...")
+                    self.conn = None
+
+            if not self.driver:
+                raise ValueError("Database driver not configured")
+
+            if self.driver not in available_drivers:
+                raise ValueError(
+                    f"Driver '{self.driver}' not installed. Available drivers: {available_drivers}")
+
+            self.conn = pyodbc.connect(self.connection_str, timeout=30)
+            self.conn.autocommit = False
+
+            self.logger.info("Database connection established successfully")
+            print(f"{self.get_logprint_info()} Connected to database {self.db}")
 
         except Exception as e:
-            self.logger.error(f"The driver '{self.driver}' is not supported by this SQL-Server\n"
-                              f"Connection error: {str(e)}")
-            self.logger.error(f"Exiting program now...")
-            print(f"{self.get_logprint_error()} The driver {self.driver} is not supported by this SQL-Server\n"
-                  f"{self.get_logprint_error()} For more information read the log: {self.log_file}\n"
-                  f"{self.get_logprint_error()} Exiting program now...\n")
+            self.logger.error(f"Connection failed: {str(e)}")
+            print(f"{self.get_logprint_error()} Database connection failed: {str(e)}")
+            self.conn = None
             raise
 
     def dependencies_check(self):
         """
+        Checks if configuration file is existing
 
         :return:
         """
         if self.existing_config:
+            self.logger.info("Configuration file verified")
             print(f"{self.get_logprint_info()} Configuration file is set.")
-            self.logger.info("Test")
         else:
+            self.logger.error("Config file missing")
             print(f"{self.get_logprint_error()} Config file is not in the expected directory!")
-            self.logger.error("Config file is not in the expected directory!")
-            exit()
+            raise FileNotFoundError("Configuration file missing")
 
     def db_disconnect(self):
         """
-
-        :return:
+        :return: None
         """
         try:
             self.conn.close()
@@ -161,6 +234,52 @@ class DatabaseManager:
 
             print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
 
+    def __enter__(self):
+        """
+        context manager: connects automatically
+
+        :return:
+        """
+        self._initialize_db_connection(self.config_file)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        context manager: disconnect automatically
+
+        :param exc_type:
+        :param exc_val:
+        :param exc_tb:
+        :return:
+        """
+        if self.conn:
+            self.conn.close()
+
+    def ensure_tables_exist(self):
+        """
+        ensures that required tables exist
+
+        :return: Any
+        """
+        try:
+            with db_lock:
+                cursor = self.conn.cursor()
+
+                # productive table
+                cursor.execute(queries(self.table_name))
+                self.logger.info(f"Checked/Created table {self.table_name}")
+
+                # backup table
+                cursor.execute(queries(self.backup_table))
+                self.logger.info(f"Checked/Created table {self.backup_table}")
+
+                self.conn.commit()
+                cursor.close()
+
+        except Exception as e:
+            self.logger.error(f"Table creation failed: {str(e)}")
+            raise
+
     def insert_software(self, software_list, hostname):
         """
         Insert the values from the gathered JSON file into the database
@@ -172,117 +291,115 @@ class DatabaseManager:
         :return:
         """
 
-        query = f"""
-        INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """
-
         try:
-            cursor = self.conn.cursor()
-            for item in software_list:
-                install_date_str = item.get('InstallDate')
-                install_date = None
-                if install_date_str:
-                    try:
-                        install_date = datetime.strptime(install_date_str, "%Y%m%d").date()
-                    except Exception:
-                        install_date = None
-                publisher = item.get('Publisher')
-                publisher_str = str(publisher)
+            with db_lock:  # Thread-security
+                self.connect_db()  # Ensure connection
 
-                check_table_backup = queries(self.backup_table)
-                check_table = queries(self.table_name)
+                # Ensure that tables exist
+                self.ensure_tables_exist()
 
-                if not self.conn.execute(check_table):
-                    print("Wenn kein Wert, dann Fehler")
+                query = f"""
+                        INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """
 
-                self.conn.execute(check_table_backup)
+                cursor = self.conn.cursor()
+                insert_count = 0
 
-                if self.conn.commit():
-                    print("Datenbanktabelle existiert bereits. Überspringe...")
+                for item in software_list:
+                    # process installDate
+                    install_date = None
+                    if install_date_str := item.get('InstallDate'):
+                        try:
+                            # support different time formats
+                            for fmt in ("%Y%m%d", "%Y-%m-%d", "%d.%m.%Y"):
+                                try:
+                                    install_date = datetime.strptime(install_date_str, fmt).date()
+                                    break
+                                except ValueError:
+                                    continue
+                        except Exception:
+                            install_date = None
 
-                if publisher_str.startswith("Interflex"):
-                    publisher_str = "Interflex Datensysteme GmbH & Co. KG"
+                    # adjust publisher
+                    publisher = str(item.get('Publisher', ''))
+                    if "Interflex" in publisher:
+                        publisher = "Interflex Datensysteme GmbH & Co. KG"
+
+                    # insert data
                     cursor.execute(query, (
-                        item.get('Name'),
-                        publisher_str,
+                        item.get('Name', 'Unknown'),
+                        publisher[:90],  # Auf maximale Länge kürzen
                         install_date,
-                        item.get('Size'),
-                        item.get('Version'),
+                        item.get('Size', 0),
+                        item.get('Version', '0.0.0')[:50],
                         hostname,
-                        0
+                        0  # isNew = False
                     ))
-                    self.conn.commit()
-                else:
-                    cursor.execute(query, (
-                        item.get('Name'),
-                        item.get('Publisher'),
-                        install_date,
-                        item.get('Size'),
-                        item.get('Version'),
-                        hostname,
-                        0
-                    ))
-                    self.conn.commit()
+                    insert_count += 1
 
-            print(f"{self.get_logprint_info()} Software-list has been written into database {self.db}")
-            self.logger.info(f"Software-list has been written into database {self.db}")
+                self.conn.commit()
+                self.logger.info(f"Inserted {insert_count} records for {hostname}")
+                print(f"{self.get_logprint_info()} Inserted {insert_count} items for {hostname}")
 
         except Exception as e:
-            self.conn.rollback()
-            print(f"An Error has occured while inserting data into database: {e}")
-            self.logger.error(f"An Error has occured while inserting data into database: {e}")
+            self.logger.error(f"Insert failed for {hostname}: {str(e)}")
+            if self.conn:
+                self.conn.rollback()
+            raise
 
     def backup_database_table(self):
         """
 
         :return:
         """
-        copy_query = f"""
-            INSERT INTO {self.backup_table} (name, publisher, installDate, programSize, hostname, isNew)
-            SELECT name, publisher, installDate, programSize, hostname, isNew
-            FROM {self.table_name}
-            WHERE isNew = 0
-            """
-
         try:
-            self.conn.execute(queries(self.table_name))
-            self.conn.commit()
-            print(f"{self.get_logprint_info()} Productive table {self.table_name} has been successfully created!")
-            self.logger.info(f"Productive table {self.table_name} has been successfully created!")
-        except pyodbc.Error as e:
-            print(f"Error during creating table {self.table_name}")
-            self.logger.error(f"Error during creating table {self.table_name}")
-            raise RuntimeError from e
+            with db_lock:
+                self.connect_db()
+                self.ensure_tables_exist()
 
-        try:
-            self.conn.execute(queries(self.backup_table))
-            self.conn.commit()
-            print(f"{self.get_logprint_info()} Backup table {self.backup_table} has been successfully created!")
-            self.logger.info(f"Backup table {self.backup_table} has been successfully created!")
-        except pyodbc.Error as e:
-            print(f"Error during creating table {self.backup_table}")
-            self.logger.error(f"Error during creating table {self.backup_table}")
-            raise RuntimeError from e
+                copy_query = f"""
+                        INSERT INTO {self.backup_table} (name, publisher, installDate, programSize, version, hostname, isNew)
+                        SELECT name, publisher, installDate, programSize, version, hostname, isNew
+                        FROM {self.table_name}
+                        """
+
+                cursor = self.conn.cursor()
+                cursor.execute(copy_query)
+                self.conn.commit()
+
+                self.logger.info(f"Backup created in {self.backup_table}")
+                print(f"{self.get_logprint_info()} Backup created successfully")
+
+        except Exception as e:
+            self.logger.error(f"Backup failed: {str(e)}")
+            if self.conn:
+                self.conn.rollback()
+            raise
 
     def reset_data_table(self):
         """
 
         :return:
         """
-        if not Exception:
-            # Defined SQL-Query to update all old entries to keep track of the new and old data
-            # TODO: Add Exception Handling, to stop the script.
-            #  Before updating data add a backup (just in case to be safe)
-            update_table = f"UPDATE {self.table_name} SET isNew = 1;"
-            try:
-                # Execute the code
+        try:
+            with db_lock:
+                self.connect_db()
+
+                update_query = f"UPDATE {self.table_name} SET isNew = 1;"
+
+                cursor = self.conn.cursor()
+                cursor.execute(update_query)
                 self.conn.commit()
-                self.conn.execute(update_table)
-                print(f"The update of the old data values in {self.table_name} has been set successfully")
-            except Exception as e:
-                print(f"[ERROR] The script ran into an error: {e}")
-                quit()
+
+                self.logger.info("Reset isNew flags")
+                print(f"{self.get_logprint_info()} Reset completed")
+
+        except Exception as e:
+            self.logger.error(f"Reset failed: {str(e)}")
+            if self.conn:
+                self.conn.rollback()
+            raise
 
 
 def queries(table):
@@ -316,26 +433,6 @@ def queries(table):
     return query
 
 
-def get_timestamp(format_var):
-    """
-    Supportive function for timestamp in custom formatting
-
-    ``format_var`` == "dmy" output = ``01-01-1970``
-
-    ``format_var`` == "hms" output = ``12-30-22``
-
-    :param format_var:
-    :return: str
-    """
-    if format_var == "dmy":
-        timestamp = datetime.now().strftime("%d-%m-%Y")
-        return timestamp
-    elif format_var == "hms":
-        timestamp = datetime.now().strftime("%H-%M-%S")
-        return timestamp
-    return datetime.now().strftime("%d-%m-%Y %H-%M-%S")
-
-
 def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.key") -> str:
     """
     Uses the ``secret.key`` to decrypt the previously encrypted password.
@@ -351,7 +448,3 @@ def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.ke
         key = key_file.read()
     fernet = Fernet(key)
     return fernet.decrypt(encrypted_password.encode()).decode()
-
-
-log = DatabaseManager()
-log.dependencies_check()
