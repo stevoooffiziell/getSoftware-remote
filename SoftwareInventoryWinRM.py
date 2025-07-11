@@ -1,3 +1,4 @@
+import os
 import warnings
 from warnings import catch_warnings
 
@@ -39,8 +40,9 @@ def parse_txt_to_json(raw_text: str):
 
 
 class SoftwareInventoryWinRM:
-    def __init__(self, host, config_file="config\\config.ini", transport='ntlm'):
-
+    def __init__(self, host, config_file=None, transport='ntlm'):
+        self.config_file = config_file
+        config_file = os.path.join("config", "config.ini")
         self.log = dm.DatabaseManager()
         # No more static strings up here
         self.info = self.log.info
@@ -107,11 +109,15 @@ class SoftwareInventoryWinRM:
         self.pwd = dm.decrypt_password(encrypted_pwd_ps)
         self.host = host
 
-        self.session = winrm.Session(
-            target=self.host,
-            auth=(self.user, self.pwd),
-            transport=transport
-        )
+        try:
+            self.session = winrm.Session(
+                target=self.host,
+                auth=(self.user, self.pwd),
+                transport=transport
+            )
+        except Exception as e:
+            self.log.logger.error(f"{self.get_logprint_error} WinRM-Verbindungsfehler zu {host}: {str(e)}")
+            raise
 
     def get_installed_software(self, output_file: str):
         # Supress warnings for WinRM-parser

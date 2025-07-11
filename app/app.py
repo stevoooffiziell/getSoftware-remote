@@ -1,17 +1,36 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import threading
+import socket
+import platform
+from datetime import datetime
 
+import flask
 import pyodbc
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
+from flask_httpauth import HTTPBasicAuth
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from DatabaseManager import DatabaseManager
+from scheduler_service import periodic_inventory
 from globals import service_active
-from scheduler_service import run_inventory
-from datetime import datetime
-import threading
 
 app = Flask(__name__, template_folder='templates')
+auth = HTTPBasicAuth()
+
+# Konfiguration für Basic Auth
+users = {
+    "admin": generate_password_hash(os.getenv('ADMIN_PASSWORD', 'default-secret'))
+}
+
+
+@auth.verify_password
+def verify_password(username, password):
+    if username in users and check_password_hash(users.get(username), password):
+        return username
+    return None
+
 
 # Globaler Singleton für DatabaseManager
 db_manager = DatabaseManager()
@@ -34,25 +53,24 @@ logging.basicConfig(
 )
 
 
-
-
 def get_db_connection():
     """Stellt eine sichere Verbindung zur MS SQL-Datenbank her"""
-
-    host = DatabaseManager().host
-    user = DatabaseManager().user
-    db = DatabaseManager().db
-    pwd = DatabaseManager().pwd
-    driver = DatabaseManager().driver
+    config = {
+        'host': db_manager.host,
+        'user': db_manager.user,
+        'pwd': db_manager.pwd,
+        'db': db_manager.db,
+        'driver': db_manager.driver
+    }
 
     connection_str = (
-            f"DRIVER=" + "{" + f"{driver}" + "}" + f";"
-            f"SERVER={host},1433;"
-            f"DATABASE={db};"
-            f"UID={user};"
-            f"PWD={pwd};"
-            f"TrustServerCertificate=yes;"
-            f"Authentication=SqlPassword;"
+        f"DRIVER={{{config['driver']}}};"
+        f"SERVER={config['host']},1433;"
+        f"DATABASE={config['db']};"
+        f"UID={config['user']};"
+        f"PWD={config['pwd']};"
+        f"TrustServerCertificate=yes;"
+        f"Authentication=SqlPassword;"
     )
 
     try:
@@ -63,22 +81,30 @@ def get_db_connection():
         logging.error(f"Datenbankverbindungsfehler: {str(e)}")
         raise
 
+
+# Systeminformationen
+system_info = {
+    'hostname': socket.gethostname(),
+    'ip_address': socket.gethostbyname(socket.gethostname()),
+    'os': platform.platform(),
+    'python_version': platform.python_version(),
+    'flask_version': flask.__version__,
+    'start_time': datetime.now()
+}
+
 # Willkommensnachricht nur einmal beim Start anzeigen
 if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_shown'):
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Software Inventory Service gestartet")
     print(f"Startzeit: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
     app.welcome_shown = True
-
-def get_scheduler():
-    from scheduler_service import scheduler
-    return scheduler
 
 
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
+
 
 def log_request(action):
     """Loggt API-Anfragen in einer Datei pro Tag"""
@@ -93,9 +119,10 @@ def log_request(action):
     except Exception as e:
         logging.error(f"Log-Schreibfehler: {str(e)}")
 
+
 @app.route('/inventory', methods=['GET'])
+@auth.login_required
 def get_inventory():
-    global conn
     log_request("INVENTORY_ACCESS")
 
     # Sortierparameter verarbeiten
@@ -130,23 +157,16 @@ def get_inventory():
         if 'conn' in locals():
             conn.close()
 
-@app.route('/stop-service', methods=['POST'])
-def stop_service():
-    service_active.clear()
-    return jsonify({"status": "stopping"})
-
-@app.route('/start-service', methods=['POST'])
-def start_service():
-    service_active.set()
-    return jsonify({"status": "started"})
 
 @app.route('/run-inventory', methods=['POST'])
+@auth.login_required
 def trigger_inventory():
-    """
-    Startet den Inventurprozess manuell
-
-    :return: tuple[Response, int] | Response
-    """
+    """Startet den Inventurprozess manuell"""
+    if not service_active.is_set():
+        return jsonify({
+            "status": "error",
+            "message": "Service ist deaktiviert"
+        }), 403
 
     def inventory_task():
         try:
@@ -154,6 +174,7 @@ def trigger_inventory():
             execution_logs["last_update"] = datetime.now()
 
             # Hauptinventurprozess ausführen
+            from testMain import main as run_inventory
             run_inventory()
 
             # Erfolgsmeldung
@@ -173,7 +194,6 @@ def trigger_inventory():
                 "status": "error"
             })
 
-    # Check if there's an existing inventory thread
     # Prüfen, ob bereits ein Inventurlauf aktiv ist
     if any(t.name == "inventory_thread" for t in threading.enumerate()):
         return jsonify({
@@ -181,15 +201,34 @@ def trigger_inventory():
             "message": "Inventory is already running"
         }), 429
 
-        # Neuen Thread starten
-    thread = threading.Thread(target=inventory_task, name="inventory_thread")
+    # Neuen Thread starten
+    thread = threading.Thread(target=inventory_task, name="manual_inventory_thread")
     thread.daemon = True
     thread.start()
 
     return jsonify({"status": "started"})
 
 
+@app.route('/stop-service', methods=['POST'])
+@auth.login_required
+def stop_service():
+    """Deaktiviert den Service"""
+    service_active.clear()
+    logging.warning("Service wurde deaktiviert")
+    return jsonify({"status": "stopping"})
+
+
+@app.route('/start-service', methods=['POST'])
+@auth.login_required
+def start_service():
+    """Aktiviert den Service"""
+    service_active.set()
+    logging.info("Service wurde aktiviert")
+    return jsonify({"status": "started"})
+
+
 @app.route('/logs', methods=['GET'])
+@auth.login_required
 def show_logs():
     log_request("LOGS_ACCESS")
 
@@ -201,7 +240,7 @@ def show_logs():
 
     if requested_log:
         # Sicherheitsprüfung: Nur Log-Dateien aus dem Verzeichnis
-        if requested_log not in log_files:
+        if requested_log not in log_files and requested_log != 'app.log':
             return "Log-Datei nicht gefunden", 404
 
         try:
@@ -213,24 +252,41 @@ def show_logs():
             return "Fehler beim Lesen der Log-Datei", 500
 
     # HTML für Log-Auswahl
-    return render_template('logs.html')
+    return render_template_string('''
+        <h1>Verfügbare Logdateien</h1>
+        <ul>
+            {% for log in logs %}
+                <li><a href="/logs?file={{ log }}">{{ log }}</a></li>
+            {% endfor %}
+        </ul>
+        <p>Anwendungslogs: <a href="/logs?file=app.log">app.log</a></p>
+    ''', logs=log_files)
+
 
 @app.route('/status')
 def service_status():
     """Gibt den aktuellen Dienststatus zurück"""
-    inventory_running = any(t.name == "inventory_thread" for t in threading.enumerate())
+    inventory_running = any(t.name == "manual_inventory_thread" for t in threading.enumerate())
+
+    # Uptime berechnen
+    uptime = datetime.now() - system_info['start_time']
+    days = uptime.days
+    hours, remainder = divmod(uptime.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{days} Tage, {hours} Stunden"
 
     return render_template("status.html",
                            inventory_running=inventory_running,
-                           service_active=service_active.is_set())
+                           service_active=service_active.is_set(),
+                           system_info=system_info,
+                           uptime=uptime_str,
+                           last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"))
+
 
 @app.route('/settings', methods=['GET', 'POST'])
+@auth.login_required
 def settings():
-    """
-    settings landingpage for adjustments
-
-    :return:
-    """
+    """Einstellungsseite für Anpassungen"""
     if request.method == 'POST':
         try:
             new_interval = int(request.form.get('interval', 2))
@@ -247,11 +303,30 @@ def settings():
     return render_template('settings.html', interval=2)
 
 
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template('500.html'), 500
+
+
 if __name__ == '__main__':
     # Create required directories
     os.makedirs("json", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
 
-    # Disable the reloader for stable operation
+    # Starte periodischen Inventur-Thread
+    inventory_thread = threading.Thread(
+        target=periodic_inventory,
+        args=(2,),
+        name="periodic_inventory",
+        daemon=True
+    )
+    inventory_thread.start()
+
+    # Starte Flask-App
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

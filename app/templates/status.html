@@ -251,11 +251,11 @@
         }
 
         .switch {
-  position: relative;
-  display: inline-block;
-  width: 60px;
-  height: 34px;
-}
+          position: relative;
+          display: inline-block;
+          width: 60px;
+          height: 34px;
+        }
 
         .switch input {
           opacity: 0;
@@ -333,21 +333,30 @@
             <div class="card">
                 <h2><i class="fas fa-server"></i> Service Status</h2>
                 <div class="status-item">
+                    <span class="status-label">Service aktivieren</span>
+                    <span class="status-value">
+                        <label class="switch">
+                            <input type="checkbox" id="serviceToggle" {% if service_active %}checked{% endif %}>
+                            <span class="slider round"></span>
+                        </label>
+                    </span>
+                </div>
+                <div class="status-item">
                     <span class="status-label">Gesamtstatus</span>
                     <span class="status-value">
-                        <span class="status-indicator status-active">
-                            <span class="status-dot dot-active"></span>
-                            Betriebsbereit
+                        <span class="status-indicator {% if service_active %}status-active{% else %}status-inactive{% endif %}">
+                            <span class="status-dot {% if service_active %}dot-active{% else %}dot-inactive{% endif %}"></span>
+                            {% if service_active %}Aktiviert{% else %}Deaktiviert{% endif %}
                         </span>
                     </span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Service aktivieren</span>
+                    <span class="status-label">Inventurprozess</span>
                     <span class="status-value">
-                        <label class="switch">
-                            <input type="checkbox" id="serviceToggle" checked>
-                            <span class="slider round"></span>
-                        </label>
+                        <span class="status-indicator {% if inventory_running %}status-active{% else %}status-inactive{% endif %}">
+                            <span class="status-dot {% if inventory_running %}dot-active{% else %}dot-inactive{% endif %}"></span>
+                            {% if inventory_running %}Läuft{% else %}Inaktiv{% endif %}
+                        </span>
                     </span>
                 </div>
                 <div class="status-item">
@@ -452,117 +461,38 @@
         </div>
 
         <footer>
-            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; 2023 | Letzte Aktualisierung: <span id="lastUpdate">2023-11-15 15:22:18</span></p>
+            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; 2023 | Letzte Aktualisierung: <span id="lastUpdate">{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
         </footer>
     </div>
 
     <script>
-        // Funktion zum Abrufen und Aktualisieren der Statusdaten
-        function fetchServiceStatus() {
-            fetch('/status')
-                .then(response => response.json())
-                .then(data => {
-                    // Inventurstatus aktualisieren
-                    const inventoryStatus = document.querySelector('.status-item:nth-child(2) .status-value');
-                    if (data.inventory_active) {
-                        inventoryStatus.innerHTML = `
-                            <span class="status-indicator status-active">
-                                <span class="status-dot dot-active"></span>
-                                Läuft
-                            </span>`;
+        // Service Toggle
+        document.getElementById('serviceToggle').addEventListener('change', function() {
+            const action = this.checked ? '/start-service' : '/stop-service';
+
+            fetch(action, { method: 'POST' })
+                .then(response => {
+                    if (response.ok) {
+                        location.reload(); // Seite neu laden für aktuellen Status
                     } else {
-                        inventoryStatus.innerHTML = `
-                            <span class="status-indicator status-inactive">
-                                <span class="status-dot dot-inactive"></span>
-                                Inaktiv
-                            </span>`;
+                        alert('Aktion fehlgeschlagen!');
+                        this.checked = !this.checked; // Toggle zurücksetzen
                     }
-
-                    // Log-Einträge aktualisieren
-                    document.getElementById('logEntries').textContent = data.log_entries;
-
-                    // Letzte Aktualisierung anzeigen
-                    const now = new Date();
-                    document.getElementById('lastUpdate').textContent =
-                        now.toISOString().replace('T', ' ').substring(0, 19);
                 })
                 .catch(error => {
-                    console.error('Fehler beim Abrufen des Status:', error);
+                    console.error('Fehler:', error);
+                    this.checked = !this.checked; // Toggle zurücksetzen
                 });
-        }
-
-        let serviceEnabled = true;
-
-        document.getElementById('serviceToggle').addEventListener('change', function() {
-            serviceEnabled = this.checked;
-            updateServiceStatus();
-
-            if (!serviceEnabled) {
-                fetch('/stop-service', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'stopping') {
-                            console.log('Service wird deaktiviert...');
-                        }
-                    });
-            } else {
-                fetch('/start-service', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'started') {
-                            console.log('Service wurde aktiviert');
-                        }
-                    });
-            }
         });
 
-        function updateServiceStatus() {
-            const statusIndicator = document.querySelector('.status-item:nth-child(2) .status-value');
-
-            if (serviceEnabled) {
-                statusIndicator.innerHTML = `
-                    <span class="status-indicator status-active">
-                        <span class="status-dot dot-active"></span>
-                        Aktiviert
-                    </span>`;
-            } else {
-                statusIndicator.innerHTML = `
-                    <span class="status-indicator status-inactive">
-                        <span class="status-dot dot-inactive"></span>
-                        Deaktiviert
-                    </span>`;
-            }
-        }
-
-
-        // Initialen Status abrufen
-        fetchServiceStatus();
-
-        document.getElementById('serviceToggle').addEventListener('change', function() {
-        const action = this.checked ? '/start-service' : '/stop-service';
-
-        fetch(action, { method: 'POST' })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'stopping' || data.status === 'started') {
-                    location.reload(); // Seite neu laden für aktuellen Status
-                }
-            });
-        });
-
-
-        // Status alle 5 Sekunden aktualisieren
-        setInterval(fetchServiceStatus, 5000);
-
-        // Demo-Daten für Systeminformationen (in einer echten Implementierung würden diese vom Server kommen)
-        document.getElementById('hostname').textContent = window.location.hostname;
-        document.getElementById('ipAddress').textContent = window.location.host;
-
-        // Uptime-Berechnung (Beispieldaten)
-        const startTime = new Date();
-        startTime.setHours(startTime.getHours() - 52);
-        document.getElementById('lastRestart').textContent =
-            startTime.toISOString().replace('T', ' ').substring(0, 19);
+        // Systeminformationen anzeigen
+        document.getElementById('hostname').textContent = "{{ system_info.hostname }}";
+        document.getElementById('ipAddress').textContent = "{{ system_info.ip_address }}";
+        document.getElementById('os').textContent = "{{ system_info.os }}";
+        document.getElementById('pythonVersion').textContent = "{{ system_info.python_version }}";
+        document.getElementById('flaskVersion').textContent = "{{ system_info.flask_version }}";
+        document.getElementById('lastRestart').textContent = "{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}";
+        document.getElementById('uptime').textContent = "{{ uptime }}";
     </script>
 </body>
 </html>

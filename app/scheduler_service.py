@@ -1,37 +1,8 @@
 # -*- coding: utf-8 -*-
-
 import logging
-import threading
 import time
-
-from apscheduler.schedulers.background import BackgroundScheduler
-
-from globals import service_active
-from testMain import main as inventory_main
 from datetime import datetime
-
-scheduler = BackgroundScheduler()
-
-
-def init_scheduler():
-    if not scheduler.get_jobs():
-        # Periodischer Job (alle 2 Wochen)
-        scheduler.add_job(
-            run_inventory,
-            'interval',
-            weeks=2,
-            id='periodic_inventory',
-            next_run_time=datetime.now()
-        )
-
-        # Manueller Job (wird bei Bedarf ausgelöst)
-        scheduler.add_job(
-            run_inventory,
-            'date',
-            id='manual_run',
-            run_date=None  # Wird nicht automatisch ausgeführt
-        )
-
+from globals import service_active
 
 # Logger konfigurieren
 logger = logging.getLogger('SchedulerService')
@@ -45,8 +16,6 @@ logger.addHandler(handler)
 def run_inventory():
     """
     Executes the inventory thread
-
-    :return:
     """
     if not service_active.is_set():
         logger.info("Inventur übersprungen - Service deaktiviert")
@@ -54,6 +23,7 @@ def run_inventory():
 
     try:
         logger.info(f"Starting inventory at {datetime.now()}")
+        from testMain import main as inventory_main
         inventory_main()
         logger.info(f"Inventory completed at {datetime.now()}")
         return True
@@ -65,12 +35,14 @@ def run_inventory():
 def periodic_inventory(interval_weeks=2):
     """
     Periodische Inventur im Hintergrund
-
-    :param interval_weeks:
     """
     while True:
         if service_active.is_set():
-            run_inventory()
+            try:
+                run_inventory()
+            except Exception as e:
+                logger.error(f"Error in periodic inventory: {str(e)}")
+
             sleep_seconds = interval_weeks * 7 * 24 * 3600
             logger.info(f"Nächste Inventur in {interval_weeks} Wochen")
         else:
@@ -78,13 +50,3 @@ def periodic_inventory(interval_weeks=2):
             logger.info("Service deaktiviert - Warte auf Aktivierung")
 
         time.sleep(sleep_seconds)
-
-
-# Starte periodische Inventur in eigenem Thread
-inventory_thread = threading.Thread(
-    target=periodic_inventory,
-    args=(2,),  # Standardintervall: 2 Wochen
-    name="periodic_inventory",
-    daemon=True
-)
-inventory_thread.start()

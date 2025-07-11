@@ -30,7 +30,7 @@ class DatabaseManager:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, config_file="config\\config.ini"):
+    def __init__(self, config_file=os.path.join("config", "config.ini"), transport='ntlm'):
         """
         Initializes database connection only once
 
