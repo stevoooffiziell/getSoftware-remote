@@ -36,6 +36,9 @@ class DatabaseManager:
         :param config_file:
         """
 
+        config = configparser.ConfigParser()
+        config.read(config_file)
+
         if self._initialized:
             return
 
@@ -43,7 +46,7 @@ class DatabaseManager:
         self.time_dmy = self.get_timestamp("dmy")
         self.time_hms = self.get_timestamp("hms")
 
-        # Logger initialisieren
+        # Initialize Logger
         self._init_logger()
 
         # Konfiguration
@@ -57,9 +60,11 @@ class DatabaseManager:
 
         # Database-configuration
         self._load_config()
+        self._initialize_db_connection(self.config_file)
 
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
+
 
     def _init_logger(self):
         self.log_file = f'logs\\{self.time_dmy}_{self.time_hms}-dbmanager.log'
@@ -107,26 +112,6 @@ class DatabaseManager:
             config = configparser.ConfigParser()
             config.read(self.config_file)
 
-            encrypted_pwd_db = config.get('db', 'pass')
-            self.pwd = decrypt_password(encrypted_pwd_db)
-
-            self.host = config.get('db', 'host')
-            self.user = config.get('db', 'user')
-            self.db = config.get('db', 'database')
-            self.driver = config.get('db', 'driver')
-            self.backup_table = config.get('db', 'backup-table')
-            self.table_name = config.get('db', 'prod-table')
-
-            self.connection_str = (
-                f"DRIVER={{{self.driver}}};"
-                f"SERVER={self.host},1433;"
-                f"DATABASE={self.db};"
-                f"UID={self.user};"
-                f"PWD={self.pwd};"
-                f"TrustServerCertificate=yes;"
-                f"Authentication=SqlPassword;"
-            )
-
             self.logger.info("Configuration loaded successfully")
         except Exception as e:
             self.logger.error(f"Error loading configuration: {str(e)}")
@@ -173,12 +158,12 @@ class DatabaseManager:
         available_drivers = ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
 
         try:
+            self.conn = pyodbc.connect(self.connection_str)
             if self.conn:
                 try:
                     # Prüfe ob Verbindung noch gültig
-                    cursor = self.conn.cursor()
-                    cursor.execute("SELECT 1")
-                    cursor.close()
+                    self.conn.execute("SELECT * FROM " + self.table_name)
+                    self.conn.close()
                     self.logger.info("Using existing database connection")
                     return
                 except pyodbc.Error:
@@ -263,18 +248,16 @@ class DatabaseManager:
         """
         try:
             with db_lock:
-                cursor = self.conn.cursor()
-
                 # productive table
-                cursor.execute(queries(self.table_name))
+                self.conn.execute(queries(self.table_name))
                 self.logger.info(f"Checked/Created table {self.table_name}")
 
                 # backup table
-                cursor.execute(queries(self.backup_table))
+                self.conn.execute(queries(self.backup_table))
                 self.logger.info(f"Checked/Created table {self.backup_table}")
 
                 self.conn.commit()
-                cursor.close()
+                self.conn.close()
 
         except Exception as e:
             self.logger.error(f"Table creation failed: {str(e)}")
@@ -293,10 +276,10 @@ class DatabaseManager:
 
         try:
             with db_lock:  # Thread-security
-                self.connect_db()  # Ensure connection
+                # Need to reconnect?
 
                 # Ensure that tables exist
-                self.ensure_tables_exist()
+                # self.ensure_tables_exist()
 
                 query = f"""
                         INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
@@ -400,7 +383,6 @@ class DatabaseManager:
             if self.conn:
                 self.conn.rollback()
             raise
-
 
 def queries(table):
     """
