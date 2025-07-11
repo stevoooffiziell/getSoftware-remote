@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+import logging
 import os
 import time
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+import pyodbc
+from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
 
 from DatabaseManager import DatabaseManager
 from scheduler_service import scheduler, run_inventory
@@ -21,6 +23,44 @@ execution_logs = {
     "last_update": datetime.now()
 }
 
+LOG_DIR = 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Logger für Applikationslogs
+logging.basicConfig(
+    filename=os.path.join(LOG_DIR, 'app.log'),
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+
+def get_db_connection():
+    """Stellt eine sichere Verbindung zur MS SQL-Datenbank her"""
+
+    host = DatabaseManager().host
+    user = DatabaseManager().user
+    db = DatabaseManager().db
+    pwd = DatabaseManager().pwd
+    driver = DatabaseManager().driver
+
+    connection_str = (
+            f"DRIVER=" + "{" + f"{driver}" + "}" + f";"
+            f"SERVER={host},1433;"
+            f"DATABASE={db};"
+            f"UID={user};"
+            f"PWD={pwd};"
+            f"TrustServerCertificate=yes;"
+            f"Authentication=SqlPassword;"
+    )
+
+    try:
+        conn = pyodbc.connect(connection_str)
+        logging.info("Datenbankverbindung erfolgreich hergestellt")
+        return conn
+    except Exception as e:
+        logging.error(f"Datenbankverbindungsfehler: {str(e)}")
+        raise
+
 # Willkommensnachricht nur einmal beim Start anzeigen
 if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_shown'):
     print("\n" + "="*80)
@@ -30,10 +70,63 @@ if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_sh
     app.welcome_shown = True
 
 
+@app.route('/style.css')
+def style_css():
+    return "hallo"
+
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
 
+def log_request(action):
+    """Loggt API-Anfragen in einer Datei pro Tag"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_file = os.path.join(LOG_DIR, f"{today}.log")
+
+    log_entry = f"[{datetime.now()}] {action} {request.remote_addr} {request.url}\n"
+
+    try:
+        with open(log_file, "a") as f:
+            f.write(log_entry)
+    except Exception as e:
+        logging.error(f"Log-Schreibfehler: {str(e)}")
+
+@app.route('/inventory', methods=['GET'])
+def get_inventory():
+    global conn
+    log_request("INVENTORY_ACCESS")
+
+    # Sortierparameter verarbeiten
+    sort_by = request.args.get('sort', 'hostname')
+    valid_columns = ['hostname', 'id', 'software_name', 'last_updated']
+
+    # Sicher gegen SQL-Injection
+    if sort_by.lower() not in valid_columns:
+        sort_by = 'hostname'
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Parameterisiertes Query mit Whitelisting
+        query = f"SELECT * FROM software_inventory ORDER BY {sort_by}"
+        cursor.execute(query)
+
+        # Ergebnisse in Dictionary konvertieren
+        columns = [column[0] for column in cursor.description]
+        results = [
+            dict(zip(columns, row))
+            for row in cursor.fetchall()
+        ]
+
+        return jsonify(results)
+
+    except Exception as e:
+        logging.error(f"Inventory-Abfragefehler: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 @app.route('/run-inventory', methods=['POST'])
 def trigger_inventory():
@@ -85,19 +178,48 @@ def trigger_inventory():
     return jsonify({"status": "started"})
 
 
-@app.route('/logs')
-def get_logs():
-    """
-    returns latest logs
+@app.route('/logs', methods=['GET'])
+def show_logs():
+    log_request("LOGS_ACCESS")
 
-    :return:
-    """
-    return jsonify({
-        "current": execution_logs["current"],
-        "history": execution_logs["history"][-50:],
-        "last_update": execution_logs["last_update"].isoformat()
-    })
+    requested_log = request.args.get('file')
+    log_files = sorted([
+        f for f in os.listdir(LOG_DIR)
+        if f.endswith('.log') and not f.startswith('app')
+    ])
 
+    if requested_log:
+        # Sicherheitsprüfung: Nur Log-Dateien aus dem Verzeichnis
+        if requested_log not in log_files:
+            return "Log-Datei nicht gefunden", 404
+
+        try:
+            with open(os.path.join(LOG_DIR, requested_log), 'r') as f:
+                content = f.read()
+            return f"<pre>{content}</pre>"
+        except Exception as e:
+            logging.error(f"Log-Lesefehler: {str(e)}")
+            return "Fehler beim Lesen der Log-Datei", 500
+
+    # HTML für Log-Auswahl
+    return render_template_string('''
+        <h1>Verfügbare Logdateien</h1>
+        <ul>
+            {% for log in logs %}
+                <li><a href="/logs?file={{ log }}">{{ log }}</a></li>
+            {% endfor %}
+        </ul>
+        <p>Anwendungslogs: <a href="/logs?file=app.log">app.log</a></p>
+    ''', logs=log_files)
+
+@app.route('/status')
+def service_status():
+    """Gibt den aktuellen Dienststatus zurück"""
+    print("Hallo")
+    inventory_running = any(t.name == "inventory_thread" for t in threading.enumerate())
+    print("Hallo2")
+
+    return render_template("status.html")
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -119,18 +241,8 @@ def settings():
                 "status": "error",
                 "message": f"Invalid interval: {str(e)}"
             }), 400
-
     return render_template('settings.html', interval=2)
 
-
-@app.route('/status')
-def service_status():
-    """Gibt den aktuellen Dienststatus zurück"""
-    print("Hallo")
-    inventory_running = any(t.name == "inventory_thread" for t in threading.enumerate())
-    print("Hallo2")
-
-    return render_template("status.html")
 
 if __name__ == '__main__':
     # Create required directories
