@@ -44,27 +44,24 @@ class DatabaseManager:
         config = configparser.ConfigParser()
         config.read(config_file)
 
-        encrypted_pwd_db = config.get('db', 'pass')
-        self.pwd = decrypt_password(encrypted_pwd_db)
+        # Verwende Umgebungsvariablen für Passwörter
+        # self.pwd = os.getenv('DB_PASSWORD', config.get('db', 'pass', fallback=''))
 
-        host = config.get('db', 'host')
-        self.host = host
+        self.pwd = config.get('db','pass')
 
-        user = config.get('db', 'user')
-        self.user = user
+        self.host = config.get('db', 'host', fallback='10.100.13.55')
+        self.user = config.get('db', 'user', fallback='db-admin')
+        self.db = config.get('db', 'database')
+        self.driver = config.get('db', 'driver')
 
-        db = config.get('db', 'database')
-        self.db = db
-
-        driver = config.get('db', 'driver')
-        self.driver = driver
+        self.passw = decrypt_password(self.pwd)
 
         connection_str =(
                 f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
                                                             f"SERVER={self.host},1433;"
                                                             f"DATABASE={self.db};"
                                                             f"UID={self.user};"
-                                                            f"PWD={self.pwd};"
+                                                            f"PWD={self.passw};"
                                                             f"TrustServerCertificate=yes;"
                                                             f"Authentication=SqlPassword;"
         )
@@ -86,20 +83,20 @@ class DatabaseManager:
         self.warning = "[WARNING] |"
         self.error = "[ERROR]   |"
         self.config_file = config_file
-        self.existing_config = exists(config_file)
+        self.existing_config = os.path.exists(config_file)
         self.conn = None
 
         # Database-configuration
         self._load_config()
-
         self._initialize_db_connection(self.config_file)
+        self._ensure_metadata_table()
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
         print(f"{self.get_logprint_info()} Database connection established.")
 
 
     def _init_logger(self):
-        self.log_file = f'logs\\{self.time_dmy}_{self.time_hms}-dbmanager.log'
+        self.log_file = os.path.join('logs', f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
 
         self.logger = logging.getLogger('DatabaseManager')
@@ -114,7 +111,6 @@ class DatabaseManager:
 
     @staticmethod
     def get_timestamp(format_var):
-        """Gibt formatierte Zeitstempel zurück"""
         now = datetime.now()
         if format_var == "dmy":
             return now.strftime("%d-%m-%Y")
@@ -135,15 +131,9 @@ class DatabaseManager:
         return f"{self.get_timestamp('')} | {self.warning}"
 
     def _load_config(self):
-        """
-        Loads the configuration from the given config.ini file
-
-        :return:
-        """
         try:
             config = configparser.ConfigParser()
             config.read(self.config_file)
-
             self.logger.info("Configuration loaded successfully")
         except Exception as e:
             self.logger.error(f"Error loading configuration: {str(e)}")
@@ -154,18 +144,6 @@ class DatabaseManager:
         Initializes the database connection.
         Function reads the ``config_file`` and initializes the connection to the given database.
         """
-        try:
-            self.connect_db()
-        except Exception as e:
-            self.logger.error(f"Initialization error: {e}")
-            raise RuntimeError("DB initialization failed!")
-
-    def connect_db(self):
-        """
-        Connects the service to the database.
-        :return:
-        """
-
         available_drivers = ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
 
         try:
@@ -173,7 +151,7 @@ class DatabaseManager:
             if self.conn:
                 try:
                     # Prüfe ob Verbindung noch gültig
-                    self.conn.execute("SELECT * FROM " + self.table_name)
+                    self.conn.execute("SELECT 1")
                     self.logger.info("Using existing database connection")
                     return
                 except pyodbc.Error:
@@ -186,6 +164,8 @@ class DatabaseManager:
             if self.driver not in available_drivers:
                 raise ValueError(
                     f"Driver '{self.driver}' not installed. Available drivers: {available_drivers}")
+
+            self.conn = pyodbc.connect(self.connection_str)
             self.conn.autocommit = False
 
             self.logger.info("Database connection established successfully")
@@ -195,6 +175,51 @@ class DatabaseManager:
             print(f"{self.get_logprint_error()} Database connection failed: {str(e)}")
             self.conn = None
             raise
+
+    def _ensure_metadata_table(self):
+        """
+        Ensures that the table exists in the database
+
+        :return:
+        """
+        try:
+            create_table_sql = """
+            IF NOT EXISTS (
+                SELECT * FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_NAME = 'service_metadata'
+            )
+            BEGIN
+                CREATE TABLE service_metadata (
+                    key NVARCHAR(50) PRIMARY KEY,
+                    value NVARCHAR(255)
+                );
+            END
+            """
+            with db_lock:
+                self.connect_db()
+                self.conn.execute(create_table_sql)
+                self.conn.commit()
+                self.logger.info("Service metadata table verified")
+        except Exception as e:
+            self.logger.error(f"Error creating metadata table: {str(e)}")
+            raise
+
+    def connect_db(self):
+        """
+        Stellt sicher, dass eine gültige DB-Verbindung besteht
+
+        :return:
+        """
+        if self.conn is None:
+            self._initialize_db_connection(self.config_file)
+        return self.conn
+
+    def get_connection(self):
+        """
+        Gibt eine gültige Datenbankverbindung zurück
+        :return:
+        """
+        return self.connect_db()
 
     def dependencies_check(self):
         """
@@ -209,21 +234,6 @@ class DatabaseManager:
             self.logger.error("Config file missing")
             print(f"{self.get_logprint_error()} Config file is not in the expected directory!")
             raise FileNotFoundError("Configuration file missing")
-
-    def db_disconnect(self):
-        """
-        :return: None
-        """
-        try:
-            self.conn.close()
-            self.logger.info(f"Connection to database {self.db} has been closed successfully.")
-            print(f"{self.get_logprint_info()} Connection to database {self.db} has been closed successfully")
-        except Exception as e:
-            self.logger.error(f"The connection to the database {self.db} hasn't been closed successfully!")
-            self.logger.error(f"Error description: {e}")
-            print(
-                f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
-            print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
@@ -268,6 +278,40 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Table creation failed: {str(e)}")
             raise
+
+    def get_metadata(self, key):
+        """
+        Holt einen Metadaten-Wert aus der Datenbank
+
+        :param key:
+        :return:
+        """
+        try:
+            with db_lock:
+                self.connect_db()
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT value FROM service_metadata WHERE key = ?", key)
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            self.logger.error(f"Error getting metadata for key '{key}': {str(e)}")
+            return None
+
+    def set_metadata(self, key, value):
+        """Setzt einen Metadaten-Wert in der Datenbank"""
+        try:
+            with db_lock:
+                self.connect_db()
+                if self.get_metadata(key):
+                    self.conn.execute("UPDATE service_metadata SET value = ? WHERE key = ?", value, key)
+                else:
+                    self.conn.execute("INSERT INTO service_metadata (key, value) VALUES (?, ?)", key, value)
+                self.conn.commit()
+                self.logger.info(f"Metadata updated: {key} = {value}")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error setting metadata for key '{key}': {str(e)}")
+            return False
 
     def insert_software(self, software_list, hostname):
         """

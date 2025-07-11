@@ -301,6 +301,22 @@
           border-radius: 50%;
         }
 
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
         /* Footer */
         footer {
             text-align: center;
@@ -332,6 +348,15 @@
         <div class="status-grid">
             <div class="card">
                 <h2><i class="fas fa-server"></i> Service Status</h2>
+
+                {% if message %}
+                <div class="message success">{{ message }}</div>
+                {% endif %}
+
+                {% if error %}
+                <div class="message error">{{ error }}</div>
+                {% endif %}
+
                 <div class="status-item">
                     <span class="status-label">Service aktivieren</span>
                     <span class="status-value">
@@ -370,11 +395,11 @@
                 </div>
                 <div class="status-item">
                     <span class="status-label">Letzte Inventur</span>
-                    <span class="status-value" id="lastInventory">2023-11-15 14:30:22</span>
+                    <span class="status-value" id="lastInventory">{{ last_run }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Nächste geplante Inventur</span>
-                    <span class="status-value" id="nextInventory">2023-11-22 14:30:00</span>
+                    <span class="status-value" id="nextInventory">{{ next_run }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Aktive Threads</span>
@@ -383,35 +408,30 @@
             </div>
 
             <div class="card">
-                <h2><i class="fas fa-history"></i> Leistungsmetriken</h2>
+                <h2><i class="fas fa-cog"></i> Service Konfiguration</h2>
+                <div class="status-item">
+                    <span class="status-label">Inventur-Intervall</span>
+                    <span class="status-value">{{ interval_weeks }} Wochen</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Datenbank-Server</span>
+                    <span class="status-value">{{ system_info.hostname }}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Datenbank-Name</span>
+                    <span class="status-value">SoftwareInventory</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Datenbank-Benutzer</span>
+                    <span class="status-value">db-admin</span>
+                </div>
                 <div class="status-item">
                     <span class="status-label">Service-Laufzeit</span>
-                    <span class="status-value" id="uptime">2 Tage, 4 Stunden</span>
+                    <span class="status-value" id="uptime">{{ uptime }}</span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Durchschn. Antwortzeit</span>
-                    <span class="status-value" id="responseTime">42 ms</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Speichernutzung</span>
-                    <span class="status-value" id="memoryUsage">128 MB / 512 MB</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">CPU-Auslastung</span>
-                    <span class="status-value">
-                        <span class="status-indicator status-warning">
-                            <span class="status-dot dot-warning"></span>
-                            65%
-                        </span>
-                    </span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Log-Einträge</span>
-                    <span class="status-value" id="logEntries">1,248</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">API-Anfragen (24h)</span>
-                    <span class="status-value" id="apiRequests">284</span>
+                    <span class="status-label">Letzter Neustart</span>
+                    <span class="status-value" id="lastRestart">{{ last_restart }}</span>
                 </div>
             </div>
 
@@ -419,49 +439,45 @@
                 <h2><i class="fas fa-network-wired"></i> Systemübersicht</h2>
                 <div class="status-item">
                     <span class="status-label">Hostname</span>
-                    <span class="status-value" id="hostname">inventory-server-01</span>
+                    <span class="status-value" id="hostname">{{ system_info.hostname }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">IP-Adresse</span>
-                    <span class="status-value" id="ipAddress">192.168.1.105</span>
+                    <span class="status-value" id="ipAddress">{{ system_info.ip_address }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Betriebssystem</span>
-                    <span class="status-value" id="os">Ubuntu 22.04 LTS</span>
+                    <span class="status-value" id="os">{{ system_info.os }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Python-Version</span>
-                    <span class="status-value" id="pythonVersion">3.10.12</span>
+                    <span class="status-value" id="pythonVersion">{{ system_info.python_version }}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Flask-Version</span>
-                    <span class="status-value" id="flaskVersion">2.3.2</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Letzter Neustart</span>
-                    <span class="status-value" id="lastRestart">2023-11-13 10:15:03</span>
+                    <span class="status-value" id="flaskVersion">{{ system_info.flask_version }}</span>
                 </div>
             </div>
 
             <div class="card">
-                <h2><i class="fas fa-chart-line"></i> Verfügbarkeitsverlauf</h2>
+                <h2><i class="fas fa-chart-line"></i> Service-Aktivität</h2>
                 <div class="chart-container">
-                    <i class="fas fa-chart-bar" style="font-size: 3rem; margin-right: 15px;"></i>
-                    Verfügbarkeitsdiagramm (letzte 7 Tage)
+                    <i class="fas fa-history" style="font-size: 3rem; margin-right: 15px;"></i>
+                    Aktivitätsverlauf (letzte 30 Tage)
                 </div>
                 <div class="status-item" style="margin-top: 20px;">
-                    <span class="status-label">Aktuelle Verfügbarkeit</span>
-                    <span class="status-value">99.87%</span>
+                    <span class="status-label">Letzte erfolgreiche Inventur</span>
+                    <span class="status-value">{{ last_run }}</span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Durchschn. monatlich</span>
-                    <span class="status-value">99.92%</span>
+                    <span class="status-label">Geplante nächste Ausführung</span>
+                    <span class="status-value">{{ next_run }}</span>
                 </div>
             </div>
         </div>
 
         <footer>
-            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; 2023 | Letzte Aktualisierung: <span id="lastUpdate">{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; {{ system_info.start_time.year }} | Letzte Aktualisierung: <span id="lastUpdate">{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
         </footer>
     </div>
 
@@ -484,15 +500,6 @@
                     this.checked = !this.checked; // Toggle zurücksetzen
                 });
         });
-
-        // Systeminformationen anzeigen
-        document.getElementById('hostname').textContent = "{{ system_info.hostname }}";
-        document.getElementById('ipAddress').textContent = "{{ system_info.ip_address }}";
-        document.getElementById('os').textContent = "{{ system_info.os }}";
-        document.getElementById('pythonVersion').textContent = "{{ system_info.python_version }}";
-        document.getElementById('flaskVersion').textContent = "{{ system_info.flask_version }}";
-        document.getElementById('lastRestart').textContent = "{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}";
-        document.getElementById('uptime').textContent = "{{ uptime }}";
     </script>
 </body>
 </html>

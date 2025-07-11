@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Serverfehler - Software Inventory</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
+            color: #2b2d42;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .error-container {
+            max-width: 600px;
+            padding: 40px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: #ef476f;
+            margin-bottom: 20px;
+        }
+
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            color: #8d99ae;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #4361ee;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .error-code {
+            font-size: 5rem;
+            font-weight: 800;
+            color: #ef476f;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-code">500</div>
+        <h1>Interner Serverfehler</h1>
+        <p>Es ist ein unerwarteter Fehler aufgetreten. Unser Team wurde benachrichtigt und arbeitet an einer Lösung.</p>
+        <a href="/" class="btn">
+            <i class="fas fa-home"></i> Zur Startseite
+        </a>
+    </div>
+</body>
+</html>
