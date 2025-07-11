@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Status - Software Inventory</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Übernehme Basis-Styles vom Dashboard */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a56d4;
+            --secondary: #7209b7;
+            --success: #06d6a0;
+            --warning: #ff9e00;
+            --danger: #ef476f;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
+            --gray: #8d99ae;
+            --card-bg: #ffffff;
+            --border: #e0e0e0;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --transition: all 0.3s ease;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header Stile */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-top: 5px;
+            font-weight: 500;
+        }
+
+        /* Button Stile */
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #backBtn {
+            background-color: var(--card-bg);
+            color: var(--dark);
+            border: 1px solid var(--border);
+        }
+
+        #backBtn:hover {
+            background-color: var(--light);
+            transform: translateY(-2px);
+        }
+
+        /* Status Cards */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            padding: 25px;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 i {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        /* Status-Indikatoren */
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .status-value {
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status-active {
+            background-color: rgba(6, 214, 160, 0.15);
+            color: #06a075;
+        }
+
+        .status-inactive {
+            background-color: rgba(239, 71, 111, 0.15);
+            color: #d6456b;
+        }
+
+        .status-warning {
+            background-color: rgba(255, 158, 0, 0.15);
+            color: #cc7e00;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-active {
+            background-color: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .dot-inactive {
+            background-color: var(--danger);
+        }
+
+        .dot-warning {
+            background-color: var(--warning);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Uptime Chart Container */
+        .chart-container {
+            height: 250px;
+            margin-top: 20px;
+            background-color: var(--light);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--gray);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-heartbeat"></i>
+                <div>
+                    <h1>Service Status Dashboard</h1>
+                    <div class="subtitle">Überwachung des Inventarservices</div>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button id="backBtn" onclick="window.location.href='/'">
+                    <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
+                </button>
+            </div>
+        </header>
+
+        <div class="status-grid">
+            <div class="card">
+                <h2><i class="fas fa-server"></i> Service Status</h2>
+                <div class="status-item">
+                    <span class="status-label">Gesamtstatus</span>
+                    <span class="status-value">
+                        <span class="status-indicator status-active">
+                            <span class="status-dot dot-active"></span>
+                            Betriebsbereit
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Inventurprozess</span>
+                    <span class="status-value">
+                        <span class="status-indicator status-inactive">
+                            <span class="status-dot dot-inactive"></span>
+                            Inaktiv
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Datenbankverbindung</span>
+                    <span class="status-value">
+                        <span class="status-indicator status-active">
+                            <span class="status-dot dot-active"></span>
+                            Verbunden
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Letzte Inventur</span>
+                    <span class="status-value" id="lastInventory">2023-11-15 14:30:22</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Nächste geplante Inventur</span>
+                    <span class="status-value" id="nextInventory">2023-11-22 14:30:00</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Aktive Threads</span>
+                    <span class="status-value" id="activeThreads">3</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-history"></i> Leistungsmetriken</h2>
+                <div class="status-item">
+                    <span class="status-label">Service-Laufzeit</span>
+                    <span class="status-value" id="uptime">2 Tage, 4 Stunden</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Durchschn. Antwortzeit</span>
+                    <span class="status-value" id="responseTime">42 ms</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Speichernutzung</span>
+                    <span class="status-value" id="memoryUsage">128 MB / 512 MB</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">CPU-Auslastung</span>
+                    <span class="status-value">
+                        <span class="status-indicator status-warning">
+                            <span class="status-dot dot-warning"></span>
+                            65%
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Log-Einträge</span>
+                    <span class="status-value" id="logEntries">1,248</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">API-Anfragen (24h)</span>
+                    <span class="status-value" id="apiRequests">284</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-network-wired"></i> Systemübersicht</h2>
+                <div class="status-item">
+                    <span class="status-label">Hostname</span>
+                    <span class="status-value" id="hostname">inventory-server-01</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">IP-Adresse</span>
+                    <span class="status-value" id="ipAddress">192.168.1.105</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Betriebssystem</span>
+                    <span class="status-value" id="os">Ubuntu 22.04 LTS</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Python-Version</span>
+                    <span class="status-value" id="pythonVersion">3.10.12</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Flask-Version</span>
+                    <span class="status-value" id="flaskVersion">2.3.2</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Letzter Neustart</span>
+                    <span class="status-value" id="lastRestart">2023-11-13 10:15:03</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-chart-line"></i> Verfügbarkeitsverlauf</h2>
+                <div class="chart-container">
+                    <i class="fas fa-chart-bar" style="font-size: 3rem; margin-right: 15px;"></i>
+                    Verfügbarkeitsdiagramm (letzte 7 Tage)
+                </div>
+                <div class="status-item" style="margin-top: 20px;">
+                    <span class="status-label">Aktuelle Verfügbarkeit</span>
+                    <span class="status-value">99.87%</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Durchschn. monatlich</span>
+                    <span class="status-value">99.92%</span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; 2023 | Letzte Aktualisierung: <span id="lastUpdate">2023-11-15 15:22:18</span></p>
+        </footer>
+    </div>
+
+    <script>
+        // Funktion zum Abrufen und Aktualisieren der Statusdaten
+        function fetchServiceStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Inventurstatus aktualisieren
+                    const inventoryStatus = document.querySelector('.status-item:nth-child(2) .status-value');
+                    if (data.inventory_active) {
+                        inventoryStatus.innerHTML = `
+                            <span class="status-indicator status-active">
+                                <span class="status-dot dot-active"></span>
+                                Läuft
+                            </span>`;
+                    } else {
+                        inventoryStatus.innerHTML = `
+                            <span class="status-indicator status-inactive">
+                                <span class="status-dot dot-inactive"></span>
+                                Inaktiv
+                            </span>`;
+                    }
+
+                    // Log-Einträge aktualisieren
+                    document.getElementById('logEntries').textContent = data.log_entries;
+
+                    // Letzte Aktualisierung anzeigen
+                    const now = new Date();
+                    document.getElementById('lastUpdate').textContent =
+                        now.toISOString().replace('T', ' ').substring(0, 19);
+                })
+                .catch(error => {
+                    console.error('Fehler beim Abrufen des Status:', error);
+                });
+        }
+
+        // Initialen Status abrufen
+        fetchServiceStatus();
+
+        // Status alle 5 Sekunden aktualisieren
+        setInterval(fetchServiceStatus, 5000);
+
+        // Demo-Daten für Systeminformationen (in einer echten Implementierung würden diese vom Server kommen)
+        document.getElementById('hostname').textContent = window.location.hostname;
+        document.getElementById('ipAddress').textContent = window.location.host;
+
+        // Uptime-Berechnung (Beispieldaten)
+        const startTime = new Date();
+        startTime.setHours(startTime.getHours() - 52);
+        document.getElementById('lastRestart').textContent =
+            startTime.toISOString().replace('T', ' ').substring(0, 19);
+    </script>
+</body>
+</html>

@@ -1,17 +1,14 @@
+# -*- coding: utf-8 -*-
+
+import logging
+import threading
+import time
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from testMain import main as inventory_main
 from datetime import datetime
 
 scheduler = BackgroundScheduler()
-
-
-def run_inventory():
-    print(f"{datetime.now()} - Starting inventory collection...")
-    try:
-        inventory_main()
-        print(f"{datetime.now()} - Inventory completed successfully")
-    except Exception as e:
-        print(f"{datetime.now()} - Error during inventory: {str(e)}")
 
 
 def init_scheduler():
@@ -25,22 +22,58 @@ def init_scheduler():
             next_run_time=datetime.now()
         )
 
-        # Manueller Job (wird bei Bedarf ausgelöst)
+        # Manueller Job (wird bei Bedarf ausgelÃ¶st)
         scheduler.add_job(
             run_inventory,
             'date',
             id='manual_run',
-            run_date=None  # Wird nicht automatisch ausgeführt
+            run_date=None  # Wird nicht automatisch ausgefÃ¼hrt
         )
 
 
-# Initialisiere den Scheduler
-init_scheduler()
+# Logger konfigurieren
+logger = logging.getLogger('SchedulerService')
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler('logs/scheduler.log')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
-if __name__ == '__main__':
-    scheduler.start()
+
+def run_inventory():
+    """
+    Executes the inventory thread
+
+    :return:
+    """
     try:
-        while True:
-            pass
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+        logger.info(f"Starting inventory at {datetime.now()}")
+        inventory_main()
+        logger.info(f"Inventory completed at {datetime.now()}")
+        return True
+    except Exception as e:
+        logger.error(f"Inventory error: {str(e)}")
+        return False
+
+
+def periodic_inventory(interval_weeks=2):
+    """
+    Periodische Inventur im Hintergrund
+
+    :param interval_weeks:
+    """
+    while True:
+        run_inventory()
+        sleep_seconds = interval_weeks * 7 * 24 * 3600
+        logger.info(f"NÃ¤chste Inventur in {interval_weeks} Wochen")
+        time.sleep(sleep_seconds)
+
+
+# Starte periodische Inventur in eigenem Thread
+inventory_thread = threading.Thread(
+    target=periodic_inventory,
+    args=(2,),  # Standardintervall: 2 Wochen
+    name="periodic_inventory",
+    daemon=True
+)
+inventory_thread.start()

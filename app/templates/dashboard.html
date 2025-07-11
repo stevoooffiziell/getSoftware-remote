@@ -1,53 +1,720 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Software Inventory Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a56d4;
+            --secondary: #7209b7;
+            --success: #06d6a0;
+            --warning: #ff9e00;
+            --danger: #ef476f;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
+            --gray: #8d99ae;
+            --card-bg: #ffffff;
+            --border: #e0e0e0;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --transition: all 0.3s ease;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header Stile */
+        header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border);
+            gap: 20px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-top: 5px;
+            font-weight: 500;
+        }
+
+        /* Button Stile */
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #runBtn {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        #runBtn:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(67, 97, 238, 0.3);
+        }
+
+        a button {
+            background-color: var(--card-bg);
+            color: var(--dark);
+            border: 1px solid var(--border);
+            text-decoration: none;
+        }
+
+        a button:hover {
+            background-color: var(--light);
+            transform: translateY(-2px);
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        @media (min-width: 992px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            padding: 25px;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 i {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        /* Live Logs Stile */
+        #liveLogs {
+            background-color: #1e1f29;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.8;
+            font-size: 0.9rem;
+            border: 1px solid #383a4a;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Status-Indikator */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: var(--gray);
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Software Tabelle */
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .software-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+
+        .software-table th {
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            color: white;
+            text-align: left;
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            font-weight: 600;
+        }
+
+        .software-table td {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.95rem;
+        }
+
+        .software-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .software-table tr:nth-child(even) {
+            background-color: #f9f9fc;
+        }
+
+        .software-table tr:hover {
+            background-color: #f0f2ff;
+        }
+
+        .software-name {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .software-version {
+            background-color: #e8f4ff;
+            color: var(--primary);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .server-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .server-icon {
+            color: var(--success);
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background-color: #e6f7ee;
+            color: #06d6a0;
+        }
+
+        .status-warning {
+            background-color: #fff8e6;
+            color: #ff9e00;
+        }
+
+        .status-error {
+            background-color: #fdeded;
+            color: #ef476f;
+        }
+
+        /* Suchleiste */
+        .search-container {
+            display: flex;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        .search-box {
+            flex: 1;
+            padding: 12px 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.2);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        /* Ladeanimation */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .refresh-btn {
+            background-color: var(--light);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .refresh-btn:hover {
+            background-color: var(--primary);
+            color: white;
+            transform: rotate(90deg);
+        }
+
+        /* Scrollbar Styling */
+        #liveLogs::-webkit-scrollbar,
+        .table-container::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        #liveLogs::-webkit-scrollbar-track,
+        .table-container::-webkit-scrollbar-track {
+            background: #2a2b35;
+        }
+
+        #liveLogs::-webkit-scrollbar-thumb,
+        .table-container::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+
+        #liveLogs::-webkit-scrollbar-thumb:hover,
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary);
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+        /* Datenbank-Info */
+        .db-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .db-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .db-connected {
+            color: var(--success);
+            font-weight: 500;
+        }
+    </style>
 </head>
 <body>
-    <h1>Software Inventory Dashboard</h1>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-database"></i>
+                <div>
+                    <h1>Software Inventory Dashboard</h1>
+                    <div class="subtitle">Dynamische Daten aus Ihrer Datenbank</div>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button id="runBtn">
+                    <i class="fas fa-sync"></i> Daten aktualisieren
+                </button>
+                <a href="/settings">
+                    <button>
+                        <i class="fas fa-cog"></i> Einstellungen
+                    </button>
+                </a>
+            </div>
+        </header>
 
-    <div>
-        <button id="runBtn">Run Inventory Now</button>
-        <a href="/settings"><button>Settings</button></a>
-    </div>
+        <div class="dashboard-grid">
+            <div class="card">
+                <h2><i class="fas fa-terminal"></i> System Logs</h2>
+                <pre id="liveLogs">[INFO] Dashboard initialisiert
+[INFO] Verbindung zur Datenbank wird hergestellt...
+[STATUS] Datenbankverbindung erfolgreich
+[STATUS] Bereit zum Laden der Software-Daten</pre>
+                <div class="status-indicator">
+                    <div class="status-dot"></div>
+                    <span>Live-Update alle 3 Sekunden</span>
+                </div>
+            </div>
 
-    <div>
-        <h2>Live Logs</h2>
-        <pre id="liveLogs"></pre>
-    </div>
+            <div class="card">
+                <div class="db-info">
+                    <h2><i class="fas fa-boxes"></i> Software Inventory</h2>
+                    <div class="db-status">
+                        <i class="fas fa-plug"></i>
+                        <span class="db-connected">Mit Datenbank verbunden</span>
+                        <div class="refresh-btn" id="refreshData">
+                            <i class="fas fa-redo"></i>
+                        </div>
+                    </div>
+                </div>
 
-    <div>
-        <h2>Statistics</h2>
-        <canvas id="statsChart" width="400" height="200"></canvas>
+                <div class="search-container">
+                    <input type="text" class="search-box" id="searchInput" placeholder="Software, Server oder Version suchen...">
+                    <button id="searchBtn">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+
+                <div class="table-container" id="tableContainer">
+                    <table class="software-table">
+                        <thead>
+                            <tr>
+                                <th>Software</th>
+                                <th>Version</th>
+                                <th>Server</th>
+                                <th>Status</th>
+                                <th>Installationsdatum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="softwareTableBody">
+                            <!-- Daten werden dynamisch geladen -->
+                        </tbody>
+                    </table>
+                    <div class="loader" id="tableLoader"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-database"></i> Software Inventory Dashboard &copy; 2023 | Letztes Update: <span id="lastUpdate">--:--:--</span></p>
+        </footer>
     </div>
 
     <script>
+        // DOM-Elemente
         const runBtn = document.getElementById('runBtn');
         const liveLogs = document.getElementById('liveLogs');
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const tableBody = document.getElementById('softwareTableBody');
+        const tableLoader = document.getElementById('tableLoader');
+        const refreshBtn = document.getElementById('refreshData');
+        const lastUpdateEl = document.getElementById('lastUpdate');
 
-        runBtn.addEventListener('click', () => {
-            fetch('/run-inventory', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'started') {
-                        liveLogs.textContent = "Starting inventory process...";
-                        updateLogs();
-                    }
-                });
-        });
+        // Simulierte Datenbankdaten (durch Ihre API zu ersetzen)
+        const sampleSoftwareData = [
+            { id: 1, name: "Apache Tomcat", version: "9.0.75", server: "web-server-01", status: "Aktiv", installDate: "2023-05-12" },
+            { id: 2, name: "MySQL Server", version: "8.0.32", server: "db-primary", status: "Aktiv", installDate: "2023-06-18" },
+            { id: 3, name: "Nginx", version: "1.23.4", server: "proxy-01", status: "Aktiv", installDate: "2023-07-22" },
+            { id: 4, name: "Java Runtime", version: "17.0.6", server: "app-server-02", status: "Update benötigt", installDate: "2023-01-15" },
+            { id: 5, name: "Docker Engine", version: "23.0.1", server: "docker-host-03", status: "Aktiv", installDate: "2023-08-30" },
+            { id: 6, name: "Node.js", version: "18.14.0", server: "dev-server-01", status: "Aktiv", installDate: "2023-04-05" },
+            { id: 7, name: "PostgreSQL", version: "15.2", server: "db-replica-02", status: "Aktiv", installDate: "2023-03-19" },
+            { id: 8, name: "Redis", version: "7.0.10", server: "cache-server-01", status: "Update benötigt", installDate: "2022-11-28" },
+            { id: 9, name: "Elasticsearch", version: "8.6.2", server: "search-node-01", status: "Aktiv", installDate: "2023-09-10" },
+            { id: 10, name: "Python", version: "3.11.2", server: "analytics-server", status: "Aktiv", installDate: "2023-02-14" },
+            { id: 11, name: "Microsoft SQL Server", version: "2019", server: "db-sql-01", status: "Wartung erforderlich", installDate: "2022-09-10" },
+            { id: 12, name: "MongoDB", version: "6.0.5", server: "nosql-db-02", status: "Aktiv", installDate: "2023-07-30" },
+            { id: 13, name: "RabbitMQ", version: "3.11.13", server: "mq-server-01", status: "Aktiv", installDate: "2023-05-20" }
+        ];
 
-        function updateLogs() {
-            fetch('/logs')
-                .then(response => response.json())
-                .then(data => {
-                    liveLogs.textContent = data.current;
-                    setTimeout(updateLogs, 2000);  // Alle 2 Sekunden aktualisieren
+        // Funktion zum Rendern der Software-Tabelle
+        function renderSoftwareTable(data) {
+            // Tabelleninhalt leeren
+            tableBody.innerHTML = '';
+
+            if (data.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 30px;">
+                            <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 15px; color: var(--gray);"></i>
+                            <p>Keine passenden Einträge gefunden</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            // Zeilen für jeden Eintrag erstellen
+            data.forEach(item => {
+                const row = document.createElement('tr');
+
+                // Status-Badge basierend auf Status
+                let statusClass = 'status-active';
+                if (item.status.includes('Update')) statusClass = 'status-warning';
+                if (item.status.includes('Wartung')) statusClass = 'status-error';
+
+                // Datum formatieren
+                const formattedDate = new Date(item.installDate).toLocaleDateString('de-DE', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
                 });
+
+                row.innerHTML = `
+                    <td class="software-name">${item.name}</td>
+                    <td><span class="software-version">${item.version}</span></td>
+                    <td class="server-name"><i class="fas fa-server server-icon"></i>${item.server}</td>
+                    <td><span class="status-badge ${statusClass}">${item.status}</span></td>
+                    <td>${formattedDate}</td>
+                `;
+                tableBody.appendChild(row);
+            });
         }
 
-        // Initiale Aktualisierung
-        updateLogs();
+        // Funktion zum Filtern der Daten
+        function filterSoftwareData(searchTerm) {
+            if (!searchTerm) return sampleSoftwareData;
+
+            return sampleSoftwareData.filter(item => {
+                return (
+                    item.name.toLowerCase().includes(searchTerm) ||
+                    item.version.toLowerCase().includes(searchTerm) ||
+                    item.server.toLowerCase().includes(searchTerm) ||
+                    item.status.toLowerCase().includes(searchTerm)
+                );
+            });
+        }
+
+        // Funktion zum Aktualisieren der Tabelle
+        function updateSoftwareTable() {
+            // Ladeanimation anzeigen
+            tableLoader.style.display = 'block';
+            tableBody.innerHTML = '';
+
+            // Simuliere Datenbankabfrage (durch echten API-Aufruf ersetzen)
+            setTimeout(() => {
+                const searchTerm = searchInput.value.toLowerCase();
+                const filteredData = filterSoftwareData(searchTerm);
+                renderSoftwareTable(filteredData);
+
+                // Ladeanimation ausblenden
+                tableLoader.style.display = 'none';
+
+                // Letztes Update aktualisieren
+                const now = new Date();
+                lastUpdateEl.textContent = now.toLocaleTimeString('de-DE');
+
+                // Log hinzufügen
+                addLog(`[SUCCESS] Software-Daten aktualisiert (${filteredData.length} Einträge)`);
+            }, 800);
+        }
+
+        // Funktion zum Hinzufügen von Log-Einträgen
+        function addLog(message) {
+            const logs = liveLogs.textContent.split('\n');
+            logs.push(`[${new Date().toLocaleTimeString('de-DE')}] ${message}`);
+            if (logs.length > 15) logs.shift();
+            liveLogs.textContent = logs.join('\n');
+            liveLogs.scrollTop = liveLogs.scrollHeight;
+        }
+
+        // Funktion zum Simulieren von Live-Logs
+        function simulateLiveLogs() {
+            const logMessages = [
+                "Datenbankabfrage durchgeführt",
+                "Cache aktualisiert",
+                "Systemressourcen überwacht",
+                "Sicherheitsprüfung abgeschlossen",
+                "Verbindung zu Backup-Server hergestellt"
+            ];
+
+            const randomMessage = logMessages[Math.floor(Math.random() * logMessages.length)];
+            addLog(`[INFO] ${randomMessage}`);
+        }
+
+        // Event-Listener
+        runBtn.addEventListener('click', () => {
+            addLog("[ACTION] Manuelle Aktualisierung gestartet");
+            updateSoftwareTable();
+
+            // Button-Animation
+            runBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Wird aktualisiert...';
+            runBtn.disabled = true;
+
+            // Nach 2 Sekunden zurücksetzen
+            setTimeout(() => {
+                runBtn.innerHTML = '<i class="fas fa-sync"></i> Daten aktualisieren';
+                runBtn.disabled = false;
+            }, 2000);
+        });
+
+        refreshBtn.addEventListener('click', () => {
+            addLog("[ACTION] Software-Daten neu geladen");
+            updateSoftwareTable();
+
+            // Animation
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            setTimeout(() => {
+                refreshBtn.innerHTML = '<i class="fas fa-redo"></i>';
+            }, 800);
+        });
+
+        searchBtn.addEventListener('click', () => {
+            addLog(`[ACTION] Suche durchgeführt: "${searchInput.value}"`);
+            updateSoftwareTable();
+        });
+
+        searchInput.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                addLog(`[ACTION] Suche durchgeführt: "${searchInput.value}"`);
+                updateSoftwareTable();
+            }
+        });
+
+        // Initialisierung
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initiale Daten laden
+            updateSoftwareTable();
+
+            // Letztes Update setzen
+            const now = new Date();
+            lastUpdateEl.textContent = now.toLocaleTimeString('de-DE');
+
+            // Live Logs simulieren
+            setInterval(simulateLiveLogs, 5000);
+
+            // Status-Log aktualisieren
+            setInterval(() => {
+                const statusDot = document.querySelector('.status-dot');
+                statusDot.style.backgroundColor = statusDot.style.backgroundColor === 'var(--success)'
+                    ? '#06d6a0'
+                    : 'var(--success)';
+            }, 1000);
+        });
     </script>
 </body>
 </html>
