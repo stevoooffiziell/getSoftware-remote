@@ -1,4 +1,3 @@
-# globals.py
 from threading import Event
 
 service_active = Event()
