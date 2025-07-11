@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
-import time
 
 import pyodbc
-from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
+from flask import Flask, render_template, request, jsonify
 
 from DatabaseManager import DatabaseManager
-from scheduler_service import scheduler, run_inventory
+from globals import service_active
+from scheduler_service import run_inventory
 from datetime import datetime
 import threading
 
@@ -32,6 +32,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+
 
 
 def get_db_connection():
@@ -69,10 +71,10 @@ if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_sh
     print("="*80 + "\n")
     app.welcome_shown = True
 
+def get_scheduler():
+    from scheduler_service import scheduler
+    return scheduler
 
-@app.route('/style.css')
-def style_css():
-    return "hallo"
 
 @app.route('/')
 def dashboard():
@@ -128,6 +130,16 @@ def get_inventory():
         if 'conn' in locals():
             conn.close()
 
+@app.route('/stop-service', methods=['POST'])
+def stop_service():
+    service_active.clear()
+    return jsonify({"status": "stopping"})
+
+@app.route('/start-service', methods=['POST'])
+def start_service():
+    service_active.set()
+    return jsonify({"status": "started"})
+
 @app.route('/run-inventory', methods=['POST'])
 def trigger_inventory():
     """
@@ -142,7 +154,6 @@ def trigger_inventory():
             execution_logs["last_update"] = datetime.now()
 
             # Hauptinventurprozess ausführen
-            time.sleep(5)
             run_inventory()
 
             # Erfolgsmeldung
@@ -202,24 +213,16 @@ def show_logs():
             return "Fehler beim Lesen der Log-Datei", 500
 
     # HTML für Log-Auswahl
-    return render_template_string('''
-        <h1>Verfügbare Logdateien</h1>
-        <ul>
-            {% for log in logs %}
-                <li><a href="/logs?file={{ log }}">{{ log }}</a></li>
-            {% endfor %}
-        </ul>
-        <p>Anwendungslogs: <a href="/logs?file=app.log">app.log</a></p>
-    ''', logs=log_files)
+    return render_template('logs.html')
 
 @app.route('/status')
 def service_status():
     """Gibt den aktuellen Dienststatus zurück"""
-    print("Hallo")
     inventory_running = any(t.name == "inventory_thread" for t in threading.enumerate())
-    print("Hallo2")
 
-    return render_template("status.html")
+    return render_template("status.html",
+                           inventory_running=inventory_running,
+                           service_active=service_active.is_set())
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():

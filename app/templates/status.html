@@ -6,7 +6,6 @@
     <title>Service Status - Software Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Übernehme Basis-Styles vom Dashboard */
         * {
             margin: 0;
             padding: 0;
@@ -14,7 +13,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        :root {
+         :root {
             --primary: #4361ee;
             --primary-dark: #3a56d4;
             --secondary: #7209b7;
@@ -251,6 +250,57 @@
             color: var(--gray);
         }
 
+        .switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+}
+
+        .switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        .slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: .4s;
+        }
+
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 26px;
+          width: 26px;
+          left: 4px;
+          bottom: 4px;
+          background-color: white;
+          transition: .4s;
+        }
+
+        input:checked + .slider {
+          background-color: #06d6a0;
+        }
+
+        input:checked + .slider:before {
+          transform: translateX(26px);
+        }
+
+        .slider.round {
+          border-radius: 34px;
+        }
+
+        .slider.round:before {
+          border-radius: 50%;
+        }
+
         /* Footer */
         footer {
             text-align: center;
@@ -292,12 +342,12 @@
                     </span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Inventurprozess</span>
+                    <span class="status-label">Service aktivieren</span>
                     <span class="status-value">
-                        <span class="status-indicator status-inactive">
-                            <span class="status-dot dot-inactive"></span>
-                            Inaktiv
-                        </span>
+                        <label class="switch">
+                            <input type="checkbox" id="serviceToggle" checked>
+                            <span class="slider round"></span>
+                        </label>
                     </span>
                 </div>
                 <div class="status-item">
@@ -441,8 +491,65 @@
                 });
         }
 
+        let serviceEnabled = true;
+
+        document.getElementById('serviceToggle').addEventListener('change', function() {
+            serviceEnabled = this.checked;
+            updateServiceStatus();
+
+            if (!serviceEnabled) {
+                fetch('/stop-service', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'stopping') {
+                            console.log('Service wird deaktiviert...');
+                        }
+                    });
+            } else {
+                fetch('/start-service', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'started') {
+                            console.log('Service wurde aktiviert');
+                        }
+                    });
+            }
+        });
+
+        function updateServiceStatus() {
+            const statusIndicator = document.querySelector('.status-item:nth-child(2) .status-value');
+
+            if (serviceEnabled) {
+                statusIndicator.innerHTML = `
+                    <span class="status-indicator status-active">
+                        <span class="status-dot dot-active"></span>
+                        Aktiviert
+                    </span>`;
+            } else {
+                statusIndicator.innerHTML = `
+                    <span class="status-indicator status-inactive">
+                        <span class="status-dot dot-inactive"></span>
+                        Deaktiviert
+                    </span>`;
+            }
+        }
+
+
         // Initialen Status abrufen
         fetchServiceStatus();
+
+        document.getElementById('serviceToggle').addEventListener('change', function() {
+        const action = this.checked ? '/start-service' : '/stop-service';
+
+        fetch(action, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'stopping' || data.status === 'started') {
+                    location.reload(); // Seite neu laden für aktuellen Status
+                }
+            });
+        });
+
 
         // Status alle 5 Sekunden aktualisieren
         setInterval(fetchServiceStatus, 5000);
