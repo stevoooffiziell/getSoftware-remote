@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <title>Software-Inventar</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -131,8 +133,8 @@
                     <td>{{ item.name }}</td>
                     <td>{{ item.version }}</td>
                     <td>{{ item.publisher }}</td>
-                    <td>{{ item.installDate if item.installDate else 'Unbekannt' }}</td>
-                    <td>{{ item.programSize if item.programSize else '0' }}</td>
+                    <td>{{item.installDate if item.installDate else 'Unbekannt'}}</td>
+                    <td>{{item.programSize if item.programSize else '0'}} KB</td>
                 </tr>
                 {% else %}
                 <tr>
@@ -141,6 +143,8 @@
                 {% endfor %}
             </tbody>
         </table>
+
+
 
         <a href="/" class="back-btn">
             <i class="fas fa-arrow-left"></i> Zurück zum Dashboard

@@ -361,7 +361,7 @@
                     <span class="status-label">Service aktivieren</span>
                     <span class="status-value">
                         <label class="switch">
-                            <input type="checkbox" id="serviceToggle" {% if service_active %}checked{% endif %}>
+                            <input type="checkbox" id="serviceToggle" {% if service_active == 1 %}checked{% endif %}>
                             <span class="slider round"></span>
                         </label>
                     </span>
@@ -369,27 +369,27 @@
                 <div class="status-item">
                     <span class="status-label">Gesamtstatus</span>
                     <span class="status-value">
-                        <span class="status-indicator {% if service_active %}status-active{% else %}status-inactive{% endif %}">
-                            <span class="status-dot {% if service_active %}dot-active{% else %}dot-inactive{% endif %}"></span>
-                            {% if service_active %}Aktiviert{% else %}Deaktiviert{% endif %}
+                        <span class="status-indicator {% if service_active == 1 %}status-active{% else %}status-inactive{% endif %}">
+                            <span class="status-dot {% if service_active == 1 %}dot-active{% else %}dot-inactive{% endif %}"></span>
+                            {% if service_active == 1%}Aktiviert{% else %}Deaktiviert{% endif %}
                         </span>
                     </span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Inventurprozess</span>
                     <span class="status-value">
-                        <span class="status-indicator {% if inventory_running %}status-active{% else %}status-inactive{% endif %}">
-                            <span class="status-dot {% if inventory_running %}dot-active{% else %}dot-inactive{% endif %}"></span>
-                            {% if inventory_running %}Läuft{% else %}Inaktiv{% endif %}
-                        </span>
+                        <span class="status-indicator {% if inventory_running %}status-warning{% else %}status-inactive{% endif %}">
+                        <span class="status-dot {% if inventory_running %}dot-warning{% else %}dot-inactive{% endif %}"></span>
+                        {% if inventory_running %}Prozess läuft{% else %}Inaktiv{% endif %}
                     </span>
+                </span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Datenbankverbindung</span>
                     <span class="status-value">
-                        <span class="status-indicator status-active">
-                            <span class="status-dot dot-active"></span>
-                            Verbunden
+                        <span class="status-indicator {% if connection %} status-active {% else %} status-inactive {% endif %}">
+                            <span class="status-dot {% if connection %} dot-active {% else %} dot-inactive {% endif %}"></span>
+                            {% if connection %}Aktiviert{% else %}Deaktiviert{% endif %}
                         </span>
                     </span>
                 </div>
@@ -403,7 +403,7 @@
                 </div>
                 <div class="status-item">
                     <span class="status-label">Aktive Threads</span>
-                    <span class="status-value" id="activeThreads">3</span>
+                    <span class="status-value" id="activeThreads">{{threads}}</span>
                 </div>
             </div>
 
@@ -411,27 +411,15 @@
                 <h2><i class="fas fa-cog"></i> Service Konfiguration</h2>
                 <div class="status-item">
                     <span class="status-label">Inventur-Intervall</span>
-                    <span class="status-value">{{ interval_weeks }} Wochen</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Datenbank-Server</span>
-                    <span class="status-value">{{ system_info.hostname }}</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Datenbank-Name</span>
-                    <span class="status-value">SoftwareInventory</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Datenbank-Benutzer</span>
-                    <span class="status-value">db-admin</span>
+                    <span class="status-value">{{interval_weeks}} Wochen</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Service-Laufzeit</span>
-                    <span class="status-value" id="uptime">{{ uptime }}</span>
+                    <span class="status-value" id="uptime">{{uptime}}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Letzter Neustart</span>
-                    <span class="status-value" id="lastRestart">{{ last_restart }}</span>
+                    <span class="status-value" id="lastRestart">{{last_restart}}</span>
                 </div>
             </div>
 
@@ -439,11 +427,11 @@
                 <h2><i class="fas fa-network-wired"></i> Systemübersicht</h2>
                 <div class="status-item">
                     <span class="status-label">Hostname</span>
-                    <span class="status-value" id="hostname">{{ system_info.hostname }}</span>
+                    <span class="status-value" id="hostname">{{system_info.hostname}}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">IP-Adresse</span>
-                    <span class="status-value" id="ipAddress">{{ system_info.ip_address }}</span>
+                    <span class="status-value" id="ipAddress">{{system_info.ip_address}}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Betriebssystem</span>
@@ -467,17 +455,17 @@
                 </div>
                 <div class="status-item" style="margin-top: 20px;">
                     <span class="status-label">Letzte erfolgreiche Inventur</span>
-                    <span class="status-value">{{ last_run }}</span>
+                    <span class="status-value">{{last_run}}</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Geplante nächste Ausführung</span>
-                    <span class="status-value">{{ next_run }}</span>
+                    <span class="status-value">{{next_run}}</span>
                 </div>
             </div>
         </div>
 
         <footer>
-            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; {{ system_info.start_time.year }} | Letzte Aktualisierung: <span id="lastUpdate">{{ system_info.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</span></p>
+            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; {{system_info.start_time.year}} | Letzter Systemstart: <span id="lastUpdate">{{system_info.start_time.strftime('%Y-%m-%d %H:%M:%S')}}</span></p>
         </footer>
     </div>
 

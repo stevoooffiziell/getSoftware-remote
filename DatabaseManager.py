@@ -2,8 +2,6 @@ import re
 import logging
 import os
 import threading
-from os.path import exists
-from types import NoneType
 
 import pyodbc
 import configparser
@@ -56,6 +54,7 @@ class DatabaseManager:
 
         self.passw = decrypt_password(self.pwd)
 
+
         connection_str =(
                 f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
                                                             f"SERVER={self.host},1433;"
@@ -93,7 +92,6 @@ class DatabaseManager:
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
         print(f"{self.get_logprint_info()} Database connection established.")
-
 
     def _init_logger(self):
         self.log_file = os.path.join('logs', f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
@@ -190,9 +188,13 @@ class DatabaseManager:
             )
             BEGIN
                 CREATE TABLE service_metadata (
-                    key NVARCHAR(50) PRIMARY KEY,
-                    value NVARCHAR(255)
+                    service_active INT,
+                    last_run DATETIME,
+                    next_run DATETIME,
+                    interval_weeks INT
                 );
+                INSERT INTO service_metadata (service_active, last_run, next_run, interval_weeks)
+                VALUES (0, 0, 0, 2)
             END
             """
             with db_lock:
@@ -213,13 +215,6 @@ class DatabaseManager:
         if self.conn is None:
             self._initialize_db_connection(self.config_file)
         return self.conn
-
-    def get_connection(self):
-        """
-        Gibt eine gültige Datenbankverbindung zurück
-        :return:
-        """
-        return self.connect_db()
 
     def dependencies_check(self):
         """
@@ -287,12 +282,11 @@ class DatabaseManager:
         :return:
         """
         try:
-            with db_lock:
-                self.connect_db()
-                cursor = self.conn.cursor()
-                cursor.execute("SELECT value FROM service_metadata WHERE key = ?", key)
-                row = cursor.fetchone()
-                return row[0] if row else None
+            self.connect_db()
+            cursor = self.conn.cursor()
+            cursor.execute(f"SELECT {key} FROM service_metadata")
+            value = cursor.fetchall()
+            return value[0]
         except Exception as e:
             self.logger.error(f"Error getting metadata for key '{key}': {str(e)}")
             return None
@@ -303,9 +297,9 @@ class DatabaseManager:
             with db_lock:
                 self.connect_db()
                 if self.get_metadata(key):
-                    self.conn.execute("UPDATE service_metadata SET value = ? WHERE key = ?", value, key)
+                    self.conn.execute(f"UPDATE dbo.service_metadata SET {key} = {value}")
                 else:
-                    self.conn.execute("INSERT INTO service_metadata (key, value) VALUES (?, ?)", key, value)
+                    self.conn.execute(f"INSERT INTO service_metadata {key} VALUES ({value})")
                 self.conn.commit()
                 self.logger.info(f"Metadata updated: {key} = {value}")
                 return True
@@ -477,7 +471,11 @@ def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.ke
     :return: str
     """
 
-    with open(key_path, "rb") as key_file:
-        key = key_file.read()
-    fernet = Fernet(key)
-    return fernet.decrypt(encrypted_password.encode()).decode()
+    try:
+        with open(key_path, "rb") as key_file:
+            key = key_file.read()
+        fernet = Fernet(key)
+        return fernet.decrypt(encrypted_password.encode()).decode()
+    except Exception as e:
+        logging.error(f"Decryption failed: {str(e)}")
+        raise RuntimeError("Password decryption error")
