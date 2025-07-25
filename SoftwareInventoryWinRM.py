@@ -1,10 +1,8 @@
 import os
 import warnings
-from warnings import catch_warnings
 
 from json import JSONDecodeError
 
-import csv
 import re
 import winrm
 import DatabaseManager as dm
@@ -113,11 +111,13 @@ class SoftwareInventoryWinRM:
             self.session = winrm.Session(
                 target=self.host,
                 auth=(self.user, self.pwd),
-                transport=transport
+                transport=transport,
+                read_timeout_sec=30,  # Timeout hinzufügen
+                operation_timeout_sec=20
             )
         except Exception as e:
-            self.log.logger.error(f"{self.get_logprint_error} WinRM-Verbindungsfehler zu {host}: {str(e)}")
-            raise
+            self.log.logger.error(f"WinRM connection error to {host}: {str(e)}")
+            raise ConnectionError(f"WinRM connection failed: {str(e)}")
 
     def get_installed_software(self, output_file: str):
         # Supress warnings for WinRM-parser

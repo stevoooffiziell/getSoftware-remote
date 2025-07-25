@@ -86,3 +86,16 @@ def periodic_inventory(interval_weeks=2):
             logger.info("Service deaktiviert - Warte auf Aktivierung")
 
         time.sleep(sleep_seconds)
+
+
+def start_periodic_inventory(interval_weeks=2):
+    """Startet den periodischen Inventur-Thread"""
+    logger.info(f"Starting periodic inventory thread with interval: {interval_weeks} weeks")
+
+    thread = threading.Thread(
+        target=periodic_inventory,
+        args=(interval_weeks,),
+        name="periodic_inventory",
+        daemon=True
+    )
+    thread.start()
