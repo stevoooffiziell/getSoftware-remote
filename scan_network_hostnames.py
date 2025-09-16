@@ -13,8 +13,7 @@ logging.basicConfig(
     handlers=[
         logging.FileHandler("logs\\scan_network.log"),
         logging.StreamHandler()
-    ]
-)
+    ])
 
 
 def get_hostname(ip):
@@ -88,5 +87,5 @@ def scan_network(subnet, logfile):
 
 if __name__ == "__main__":
     # Passe das Subnetz an dein Netzwerk an!
-    scan_network("10.100.12", "hostnames.log") 
-    scan_network("10.100.13", "hostnames.log")
+    scan_network("10.100.12", "hostnames12.log")
+    scan_network("10.100.13", "hostnames13.log")

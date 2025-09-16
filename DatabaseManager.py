@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import re
 import logging
 import os
@@ -8,8 +10,26 @@ import configparser
 from datetime import datetime
 from cryptography.fernet import Fernet
 
-
 db_lock = threading.Lock()
+
+
+def clean_names(item):
+    # Architektur in Klammern entfernen (z.B. (x64), (64-bit), (x86_64))
+    name = re.sub(r'\(\s*.*?(x64|x86|64-bit|32-bit|x86_64).*?\s*\)', '', item, flags=re.IGNORECASE)
+    # Architektur-Begriffe außerhalb von Klammern entfernen (inkl. Unterstrich)
+    name = re.sub(r'\b(x64|x86|64-bit|32-bit|x86_64)\b', '', name, flags=re.IGNORECASE)
+    # Versionen entfernen, z.B. "14.40.33816", "v11.10"
+    name = re.sub(r'\bv?\d+(\.\d+)*\b', '', name, flags=re.IGNORECASE)
+    # Leere Klammern entfernen
+    name = re.sub(r'\(\s*\)', '', name)
+    # Leerzeichen um Bindestriche bereinigen, Jahresbereiche wie 2015-2022 bleiben
+    name = re.sub(r'(?<=\D)\s*-\s*(?=\D)', '-', name)
+    # Leerzeichen und Bindestriche am Ende entfernen
+    name = re.sub(r'[\s\-]+$', '', name)
+    # Mehrere Leerzeichen auf eins reduzieren
+    name = re.sub(r'\s{2,}', ' ', name)
+    name = name.strip()
+    return name
 
 
 class DatabaseManager:
@@ -74,6 +94,7 @@ class DatabaseManager:
         self.time_hms = self.get_timestamp("hms")
 
         # Initialize Logger
+        print(f"{self.get_timestamp('')} | [INFO]    | Initializing logger...")
         self._init_logger()
 
         # Konfiguration
@@ -87,7 +108,7 @@ class DatabaseManager:
 
         # Database-configuration
         self._load_config()
-        self._initialize_db_connection(self.config_file)
+        self._initialize_db_connection()
         self._ensure_metadata_table()
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
@@ -137,12 +158,13 @@ class DatabaseManager:
             self.logger.error(f"Error loading configuration: {str(e)}")
             raise RuntimeError(f"Configuration error: {str(e)}")
 
-    def _initialize_db_connection(self, config_file):
+    def _initialize_db_connection(self):
         """
         Initializes the database connection.
         Function reads the ``config_file`` and initializes the connection to the given database.
         """
         available_drivers = ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
+
 
         try:
             self.conn = pyodbc.connect(self.connection_str)
@@ -189,12 +211,31 @@ class DatabaseManager:
             BEGIN
                 CREATE TABLE service_metadata (
                     service_active INT,
-                    last_run DATETIME,
-                    next_run DATETIME,
-                    interval_weeks INT
+                    last_inventory_start DATETIME,
+                    next_inventory_start DATETIME,
+                    interval_weeks INT,
+                    last_end_time DATETIME,
+                    identifier INT
                 );
-                INSERT INTO service_metadata (service_active, last_run, next_run, interval_weeks)
-                VALUES (0, 0, 0, 2)
+                
+                DECLARE @init_last_run DATETIME = NULL;
+                DECLARE @init_next_run DATETIME = DATEADD(WEEK, 2, GETDATE());
+        
+                INSERT INTO service_metadata (
+                    service_active, 
+                    last_inventory_start, 
+                    next_inventory_run, 
+                    interval_weeks,
+                    last_end_time,
+                    identifier
+                ) VALUES (
+                    0,
+                    @init_last_run,
+                    @init_next_run,
+                    2,
+                    NULL,
+                    NULL
+                );
             END
             """
             with db_lock:
@@ -213,7 +254,7 @@ class DatabaseManager:
         :return:
         """
         if self.conn is None:
-            self._initialize_db_connection(self.config_file)
+            self._initialize_db_connection()
         return self.conn
 
     def dependencies_check(self):
@@ -264,9 +305,10 @@ class DatabaseManager:
 
                 self.conn.commit()
 
-                # backup table
-                self.conn.execute(queries(self.backup_table))
-                self.logger.info(f"Checked/Created table {self.backup_table}")
+                # backup table TODO: implement it or abandon it? Or get a better solution. Create a backup SQL-file?
+                #                    Makes sense to me tho.
+                '''self.conn.execute(queries(self.backup_table))
+                self.logger.info(f"Checked/Created table {self.backup_table}")'''
 
                 self.conn.commit()
 
@@ -284,9 +326,10 @@ class DatabaseManager:
         try:
             self.connect_db()
             cursor = self.conn.cursor()
-            cursor.execute(f"SELECT {key} FROM service_metadata")
-            value = cursor.fetchall()
-            return value[0]
+            cursor.execute(f"SELECT {key} FROM service_metadata WHERE identifier = 1")
+            row = cursor.fetchone()
+            if row:
+                return row[0]
         except Exception as e:
             self.logger.error(f"Error getting metadata for key '{key}': {str(e)}")
             return None
@@ -294,18 +337,31 @@ class DatabaseManager:
     def set_metadata(self, key, value):
         """Setzt einen Metadaten-Wert in der Datenbank"""
         try:
-            with db_lock:
-                self.connect_db()
-                if self.get_metadata(key):
-                    self.conn.execute(f"UPDATE dbo.service_metadata SET {key} = {value}")
-                else:
-                    self.conn.execute(f"INSERT INTO service_metadata {key} VALUES ({value})")
+            if self.get_metadata(key):
+                self.conn.execute(f"UPDATE service_metadata SET {key} = {value} WHERE identifier = 1")
                 self.conn.commit()
-                self.logger.info(f"Metadata updated: {key} = {value}")
-                return True
+            else:
+                self.conn.execute(f"INSERT INTO service_metadata {key} VALUES ({value})")
+                self.conn.commit()
+            self.logger.info(f"Metadata updated: {key} = {value}")
+            print(f"Metadata updated: {key} = {value}")
+            return True
         except Exception as e:
             self.logger.error(f"Error setting metadata for key '{key}': {str(e)}")
             return False
+
+    def set_starttime(self):
+        cursor = self.conn.cursor()
+        x = datetime.now()
+        cursor.execute("UPDATE service_metadata SET last_inventory_start = ? WHERE identifier = 1", x)
+        cursor.commit()
+        return print(f"Metadata has been updated to: {x}")
+
+    def set_nexttime(self, value):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE service_metadata SET next_inventory_run = ? WHERE identifier = 1", value)
+        cursor.commit()
+        return print(f"Metadata 'next_inventory_run' has been updated to: {value}")
 
     def insert_software(self, software_list, hostname):
         """
@@ -352,10 +408,15 @@ class DatabaseManager:
                         except Exception:
                             install_date = None
 
-                    # adjust publisher
+                    # unification same publisher with different spelling
                     publisher = str(item.get('Publisher', ''))
                     if "Interflex" in publisher:
                         publisher = "Interflex Datensysteme GmbH & Co. KG"
+                    if "Microsoft" in publisher:
+                        publisher = "Microsoft Corporation"
+
+
+                    name = clean_names(item.get('Name'))
 
                     # insert data
                     self.conn.execute(query, (
@@ -379,7 +440,7 @@ class DatabaseManager:
                 self.conn.rollback()
             raise
 
-    def backup_database_table(self):
+    '''def backup_database_table(self):
         """
 
         :return:
@@ -404,9 +465,9 @@ class DatabaseManager:
             self.logger.error(f"Backup failed: {str(e)}")
             if self.conn:
                 self.conn.rollback()
-            raise
+            raise'''
 
-    def reset_data_table(self):
+    '''def reset_data_table(self):
         """
 
         :return:
@@ -427,7 +488,8 @@ class DatabaseManager:
             self.logger.error(f"Reset failed: {str(e)}")
             if self.conn:
                 self.conn.rollback()
-            raise
+            raise'''
+
 
 def queries(table):
     """
@@ -458,7 +520,6 @@ def queries(table):
     END
     """
     return query
-
 
 def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.key") -> str:
     """
