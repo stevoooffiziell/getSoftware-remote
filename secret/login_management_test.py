@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+# IGNORE THIS, ONLY TEST PURPOSES XD
+
+'''
 from secret.user_management import register, login
 from secret.pwd_management import USER_DETAILS_FILEPATH
 
@@ -26,3 +29,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+'''
