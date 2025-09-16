@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Software Inventory</title>
+
+    <!-- External CSS libraries -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- self-coded CSS libraries -->
+    <link rel="stylesheet" href="../static/css/login-ui.css">
+    <link rel="stylesheet" href="../static/css/shared-lib.css">
+
+    <!-- JavaScript libraries -->
+    <link rel="stylesheet" href="../static/js/login-ui.js">
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">
+            <i class="fas fa-boxes-stacked"></i>
+            <div>
+                <h1>Software Inventory Service</h1>
+                <div class="subtitle">Bitte melden Sie sich an</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="login-card">
+        <form id="loginForm" action="/login" method="post">
+            <div class="form-group">
+                <label for="username">Benutzername</label>
+                <div class="input-with-icon">
+                    <i class="fas fa-user"></i>
+                    <input type="text" id="username" name="username" required placeholder="Ihr Benutzername" value="{{ request.form.username if request.form }}">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Passwort</label>
+                <div class="input-with-icon">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" id="password" name="password" required placeholder="Ihr Passwort">
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">
+                <i class="fas fa-sign-in-alt"></i> Anmelden
+            </button>
+
+            <div class="error-message" id="errorMessage">
+                <i class="fas fa-exclamation-circle"></i> Ungültige Anmeldedaten
+            </div>
+        </form>
+    </div>
+
+    <footer>
+        <p><i class="fas fa-shield-alt"></i> pfenning logistics &copy; 2025 | Version 0.2.4</p>
+    </footer>
+</div>
+
+<!-- Popup für ungültige Anmeldedaten -->
+<div class="popup-overlay" id="errorPopup">
+    <div class="popup">
+        <div class="popup-icon">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <div class="popup-title">Anmeldung fehlgeschlagen</div>
+        <div class="popup-message" id="popupMessage">
+            Die eingegebenen Anmeldedaten sind ungültig. Bitte überprüfen Sie Benutzername und Passwort.
+        </div>
+        <button class="popup-button" onclick="closePopup()">OK</button>
+    </div>
+</div>
+
+<script>
+    // Einfache Client-seitige Validierung
+    document.getElementById('loginForm').addEventListener('submit', function(event) {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const errorMessage = document.getElementById('errorMessage');
+
+        if (username.trim() === '' || password.trim() === '') {
+            event.preventDefault();
+            errorMessage.style.display = 'block';
+            document.getElementById('popupMessage').textContent = 'Bitte füllen Sie beide Felder aus.';
+            showPopup();
+        }
+    });
+
+    // Prüfen, ob eine Flash-Nachricht vorhanden ist und Popup anzeigen
+    document.addEventListener('DOMContentLoaded', function() {
+        // Prüfen, ob es eine Fehlermeldung gibt
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        {% if category == 'error' %}
+        document.getElementById('popupMessage').textContent = '{{ message }}';
+        showPopup();
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+    });
+
+    function showPopup() {
+        document.getElementById('errorPopup').classList.add('active');
+    }
+
+    function closePopup() {
+        document.getElementById('errorPopup').classList.remove('active');
+    }
+</script>
+</body>
+</html>

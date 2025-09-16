@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Kontoübersicht - Software Inventory</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a56d4;
+            --secondary: #7209b7;
+            --success: #06d6a0;
+            --warning: #ff9e00;
+            --danger: #ef476f;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
+            --gray: #8d99ae;
+            --card-bg: #ffffff;
+            --border: #e0e0e0;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Header Stile */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo i {
+            font-size: 2.5rem;
+            color: var(--primary);
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-top: 5px;
+            font-weight: 500;
+        }
+
+        /* Navigation */
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-links a {
+            color: var(--dark);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        /* Kontoübersicht Karte */
+        .account-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            padding: 30px;
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .account-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .account-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        .account-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .account-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5rem;
+        }
+
+        .account-title {
+            font-size: 1.8rem;
+            color: var(--dark);
+        }
+
+        .account-info {
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .info-value {
+            color: var(--gray);
+        }
+
+        /* Button Stile */
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #d93654;
+            transform: translateY(-2px);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        /* Flash-Nachrichten */
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+
+        .flash-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            animation: fadeIn 0.5s, fadeOut 0.5s 2.5s forwards;
+        }
+
+        .flash-success {
+            background-color: rgba(6, 214, 160, 0.2);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .flash-error {
+            background-color: rgba(239, 71, 111, 0.2);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Flash-Nachrichten -->
+        <div class="flash-messages">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message {% if category == 'error' %}flash-error{% else %}flash-success{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        <header>
+            <div class="logo">
+                <i class="fas fa-boxes-stacked"></i>
+                <div>
+                    <h1>Software Inventory Service</h1>
+                    <div class="subtitle">Kontoübersicht</div>
+                </div>
+            </div>
+            <div class="nav-links">
+                <a href="/dashboard"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="/account"><i class="fas fa-user"></i> Konto</a>
+            </div>
+        </header>
+
+        <div class="account-card">
+            <div class="account-header">
+                <div class="account-icon">
+                    <i class="fas fa-user"></i>
+                </div>
+                <h2 class="account-title">Kontoübersicht</h2>
+            </div>
+
+            <div class="account-info">
+                <div class="info-item">
+                    <span class="info-label">Benutzername:</span>
+                    <span class="info-value">{{ username }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Rolle:</span>
+                    <span class="info-value">Administrator</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Anmeldedatum:</span>
+                    <span class="info-value">{{ session.get('login_time', 'Nicht verfügbar') }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Letzte Aktivität:</span>
+                    <span class="info-value">{{ session.get('last_activity', 'Nicht verfügbar') }}</span>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-primary" onclick="window.location.href='/dashboard'">
+                    <i class="fas fa-home"></i> Zum Dashboard
+                </button>
+                <button class="btn-danger" onclick="window.location.href='/logout'">
+                    <i class="fas fa-sign-out-alt"></i> Abmelden
+                </button>
+            </div>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-shield-alt"></i> pfenning logistics &copy; 2025 | Version 0.2.4</p>
+        </footer>
+    </div>
+
+    <script>
+        // Automatisches Ausblenden der Flash-Nachrichten nach 5 Sekunden
+        setTimeout(() => {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                message.style.display = 'none';
+            });
+        }, 5000);
+    </script>
+</body>
+</html>
