@@ -5,9 +5,9 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-import _func
-from globals import service_active
-from DatabaseManager import DatabaseManager
+import functions.pwsh_processor as _func
+from vars.global_vars import service_active
+from functions.DatabaseManager import DatabaseManager
 
 # Logger konfigurieren
 logger = logging.getLogger('SchedulerService')

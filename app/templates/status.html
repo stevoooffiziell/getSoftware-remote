@@ -5,54 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="5">
     <title>Service Status - Software Inventory</title>
+    <link rel="stylesheet" href="../static/css/shared-lib.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-         :root {
-            --primary: #4361ee;
-            --primary-dark: #3a56d4;
-            --secondary: #7209b7;
-            --success: #06d6a0;
-            --warning: #ff9e00;
-            --danger: #ef476f;
-            --dark: #2b2d42;
-            --light: #f8f9fa;
-            --gray: #8d99ae;
-            --card-bg: #ffffff;
-            --border: #e0e0e0;
-            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            --transition: all 0.3s ease;
-        }
-
-        body {
-            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
-            color: var(--dark);
-            min-height: 100vh;
-            padding: 20px;
-            line-height: 1.6;
-        }
-
         .container {
             max-width: 1200px;
             margin: 0 auto;
         }
 
         /* Header Stile */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
         .logo {
             display: flex;
             align-items: center;
@@ -207,11 +168,6 @@
             color: #d6456b;
         }
 
-        .status-warning {
-            background-color: rgba(255, 158, 0, 0.15);
-            color: #cc7e00;
-        }
-
         .status-dot {
             width: 10px;
             height: 10px;
@@ -225,11 +181,6 @@
 
         .dot-inactive {
             background-color: var(--danger);
-        }
-
-        .dot-warning {
-            background-color: var(--warning);
-            animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
@@ -348,7 +299,7 @@
 
         <div class="status-grid">
             <div class="card">
-                <h2><i class="fas fa-server"></i> Service Status</h2>
+                <h2><i class="fas fa-server" style="align-content: center; padding-left: 10px;"></i> Service Status</h2>
 
                 {% if message %}
                 <div class="message success">{{ message }}</div>

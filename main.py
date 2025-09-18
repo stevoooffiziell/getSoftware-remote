@@ -1,15 +1,13 @@
-from DatabaseManager import DatabaseManager
+# -*- coding: utf-8 -*-
+
+from functions.scan_network_hostnames import scan_network, load_existing_entries
+import os
 
 if __name__ == '__main__':
-    try:
-        db = DatabaseManager()
-        print("Database connection successful!")
+    # Sicherstellen, dass das Log-Verzeichnis existiert
+    os.makedirs("logs", exist_ok=True)
 
-        # Testabfrage
-        cursor = db.conn.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM {db.table_name}")
-        count = cursor.fetchone()[0]
-        print(f"Table {db.table_name} contains {count} records")
-
-    except Exception as e:
-        print(f"Database test failed: {str(e)}")
+    # Netzwerk-Scans durchführen
+    scan_network("10.100.12", "logs\\12-net.log")
+    load_existing_entries()
+    scan_network("10.100.13", "logs\\13-net.log")

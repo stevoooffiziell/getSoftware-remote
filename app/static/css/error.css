@@ -1,0 +1,143 @@
+/* Error Page Styling - error.css */
+.error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+    padding: 20px;
+}
+
+.error-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+    padding: 40px;
+    margin-bottom: 30px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    max-width: 800px;
+    width: 100%;
+    text-align: center;
+}
+
+.error-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(to right, var(--primary), var(--secondary));
+}
+
+.error-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.error-icon-large {
+    font-size: 6rem;
+    margin-bottom: 25px;
+    display: block;
+}
+
+.error-404 .error-icon-large {
+    background: linear-gradient(135deg, var(--secondary), var(--warning));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.error-500 .error-icon-large {
+    background: linear-gradient(135deg, var(--danger), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.error-code {
+    font-size: 5rem;
+    font-weight: 800;
+    margin-bottom: 15px;
+    background: linear-gradient(to right, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.error-message {
+    font-size: 1.5rem;
+    color: var(--dark);
+    margin-bottom: 30px;
+    font-weight: 600;
+}
+
+.error-details {
+    background: var(--light);
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    text-align: left;
+}
+
+/* Angepasste Listen-Stile */
+.error-details ul {
+    list-style-type: none;
+    padding-left: 0;
+    margin: 15px 0;
+}
+
+.error-details li {
+    position: relative;
+    padding-left: 25px;
+    margin-bottom: 10px;
+    line-height: 1.5;
+    font-size: 1rem;
+    color: var(--dark);
+}
+
+.error-details li:before {
+    content: "•";
+    position: absolute;
+    left: 10px;
+    color: var(--primary);
+    font-size: 1.2rem;
+}
+
+.error-details strong {
+    color: var(--dark);
+    font-weight: 600;
+}
+
+.error-actions {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+@media (max-width: 768px) {
+    .error-code {
+        font-size: 4rem;
+    }
+
+    .error-message {
+        font-size: 1.2rem;
+    }
+
+    .error-actions {
+        flex-direction: column;
+    }
+
+    .error-icon-large {
+        font-size: 4rem;
+    }
+
+    .error-details li {
+        padding-left: 22px;
+    }
+
+    .error-details li:before {
+        left: 8px;
+    }
+}

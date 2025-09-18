@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet
 import os
 
 # Verzeichnispfad
-key_path = "config\\secret.key"
+key_path = "../config/secret.key"
 os.makedirs(os.path.dirname(key_path), exist_ok=True)
 
 # Benutzer-Passwort sicher abfragen

@@ -48,7 +48,7 @@ class DatabaseManager:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, config_file=os.path.join("config", "config.ini"), transport='ntlm'):
+    def __init__(self, config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "config.ini")), transport='ntlm'):
         """
         Initializes database connection only once
 
@@ -58,14 +58,16 @@ class DatabaseManager:
         """
         if self._initialized:
             return
-
+        self.config_file = config_file
         config = configparser.ConfigParser()
-        config.read(config_file)
+        read_files = config.read(self.config_file)
+        if not read_files:
+            raise FileNotFoundError(f"Config file not found: {self.config_file}")
 
-        # Verwende Umgebungsvariablen für Passwörter
-        # self.pwd = os.getenv('DB_PASSWORD', config.get('db', 'pass', fallback=''))
+        if not config.has_section('db'):
+            raise Exception("Config file does not have [db] section")
 
-        self.pwd = config.get('db','pass')
+        self.pwd = config.get('db', 'pass')
 
         self.host = config.get('db', 'host', fallback='10.100.13.55')
         self.user = config.get('db', 'user', fallback='db-admin')
@@ -115,7 +117,7 @@ class DatabaseManager:
         print(f"{self.get_logprint_info()} Database connection established.")
 
     def _init_logger(self):
-        self.log_file = os.path.join('logs', f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
+        self.log_file = os.path.join('../logs', f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
 
         self.logger = logging.getLogger('DatabaseManager')
