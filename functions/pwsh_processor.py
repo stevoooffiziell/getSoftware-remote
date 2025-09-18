@@ -1,15 +1,15 @@
 # -*-coding: utf-8 -*-
 import json
 import csv
-from DatabaseManager import DatabaseManager
-from SoftwareInventoryWinRM import SoftwareInventoryWinRM
-import globals
+from functions.DatabaseManager import DatabaseManager
+from functions.SoftwareInventoryWinRM import SoftwareInventoryWinRM
+import vars.global_vars
 
 db_instance: DatabaseManager = DatabaseManager()
 
 def process_csv(db_inst):
     first = True
-    with open("csv\\hosts.csv", newline='', encoding="utf-8") as csvfile:
+    with open("../csv/hosts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
             if first:

@@ -1,7 +1,7 @@
 import csv
 from threading import Event, Lock
 
-from DatabaseManager import DatabaseManager
+from functions.DatabaseManager import DatabaseManager
 
 db = DatabaseManager()
 

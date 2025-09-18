@@ -4,72 +4,79 @@
     <meta charset="UTF-8">
     <title>Seite nicht gefunden - Software Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        body {
-            background: linear-gradient(135deg, #f5f7fb 0%, #e4e9f7 100%);
-            color: #2b2d42;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            text-align: center;
-            padding: 20px;
-        }
-
-        .error-container {
-            max-width: 600px;
-            padding: 40px;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-
-        h1 {
-            font-size: 3rem;
-            color: #ef476f;
-            margin-bottom: 20px;
-        }
-
-        p {
-            font-size: 1.2rem;
-            margin-bottom: 30px;
-            color: #8d99ae;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 12px 24px;
-            background: #4361ee;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-        }
-
-        .error-code {
-            font-size: 5rem;
-            font-weight: 800;
-            color: #ef476f;
-            margin-bottom: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="../static/css/shared-lib.css">
+    <link rel="stylesheet" href="../static/css/error.css">
 </head>
 <body>
+<img class="fixed-logo" alt="Logo" src="../static/img/logo.png">
+
+<div class="container">
+    <header>
+        <div class="logo">
+            <i class="fas fa-exclamation-triangle"></i>
+            <div>
+                <h1>Software Inventory Service</h1>
+                <div class="subtitle">Fehler 404 - Seite nicht gefunden</div>
+            </div>
+        </div>
+        <div class="nav-links">
+            <a href="/dashboard"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="/account"><i class="fas fa-user"></i> Konto</a>
+        </div>
+    </header>
+
     <div class="error-container">
-        <div class="error-code">404</div>
-        <h1>Seite nicht gefunden</h1>
-        <p>Die angeforderte Seite konnte nicht gefunden werden. Bitte überprüfen Sie die URL oder kehren Sie zur Startseite zurück.</p>
-        <p>{{e}}</p>
-        <a href="/" class="btn">
-            <i class="fas fa-home"></i> Zur Startseite
-        </a>
+        <div class="error-card error-404">
+            <i class="error-icon-large fas fa-exclamation-triangle"></i>
+
+            <h1 class="error-code">404</h1>
+
+            <p class="error-message">
+                Die angeforderte Seite konnte nicht gefunden werden.
+            </p>
+
+            <div class="error-details">
+                <p><strong>Mögliche Ursachen:</strong></p>
+                <ul>
+                    <li>Die Seite wurde verschoben oder umbenannt</li>
+                    <li>Sie haben eine falsche URL eingegeben</li>
+                    <li>Die Ressource wurde gelöscht</li>
+                </ul>
+            </div>
+
+            <div class="error-actions">
+                <button class="btn btn-primary" onclick="window.location.href='/dashboard'">
+                    <i class="fas fa-home"></i> Zum Dashboard
+                </button>
+                <button class="btn btn-secondary" onclick="window.history.back()">
+                    <i class="fas fa-arrow-left"></i> Zurück
+                </button>
+                <button class="btn btn-secondary" onclick="window.location.reload()">
+                    <i class="fas fa-sync-alt"></i> Seite neu laden
+                </button>
+            </div>
+        </div>
     </div>
+
+    <footer>
+        <p>
+            <i class="fas fa-shield-alt"></i> pfenning logistics &copy; 2025 | Version 0.2.4
+            <a href="/account" style="margin-left: 15px; color: var(--primary); text-decoration: none;">
+                <i class="fas fa-user"></i> Konto
+            </a>
+            <a href="/logout" style="margin-left: 15px; color: var(--primary); text-decoration: none;">
+                <i class="fas fa-sign-out-alt"></i> Abmelden
+            </a>
+        </p>
+    </footer>
+</div>
+<!--
+<script>
+    // Automatische Weiterleitung nach 10 Sekunden
+    setTimeout(() => {
+        window.location.href = '/dashboard';
+    }, 10000);
+</script>
+-->
 </body>
 </html>

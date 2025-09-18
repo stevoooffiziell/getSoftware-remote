@@ -5,7 +5,7 @@ from json import JSONDecodeError
 
 import re
 import winrm
-import DatabaseManager as dm
+import functions.DatabaseManager as dm
 import json
 import base64
 import configparser
@@ -40,7 +40,7 @@ def parse_txt_to_json(raw_text: str):
 class SoftwareInventoryWinRM:
     def __init__(self, host, config_file=None, transport='ntlm'):
         self.config_file = config_file
-        config_file = os.path.join("config", "config.ini")
+        config_file = os.path.join("../config", "config.ini")
         self.log = dm.DatabaseManager()
         # No more static strings up here
         self.info = self.log.info
