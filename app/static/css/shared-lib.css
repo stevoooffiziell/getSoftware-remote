@@ -2,6 +2,7 @@
     /* Farbpalette */
     --primary: #4361ee;
     --primary-dark: #3a56d4;
+    --primary-test: #888888;
     --secondary: #7209b7;
     --success: #06d6a0;
     --warning: #ff9e00;
@@ -68,7 +69,7 @@ header {
 .logo i {
     font-size: 2.5rem;
     color: var(--primary);
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: linear-gradient(135deg, var(--success), var(--primary), var(--secondary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -76,10 +77,18 @@ header {
 h1 {
     font-size: 2.2rem;
     font-weight: 800;
-    background: linear-gradient(to right, var(--primary), var(--secondary));
+    background: linear-gradient(135deg, var(--success), var(--primary), var(--secondary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     line-height: 1.2;
+}
+
+table{
+    thead{
+        th{
+            background: linear-gradient(0deg, var(--success) 0%, var(--primary) 23%, var(--secondary) 70%);
+        }
+    }
 }
 
 .subtitle {
@@ -112,7 +121,7 @@ button, .btn {
 }
 
 .btn-primary {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--success), var(--secondary));
     color: white;
 }
 
@@ -287,22 +296,6 @@ label {
     display: block;
     margin-bottom: 8px;
     font-weight: 600;
-}
-
-.input-with-icon {
-    position: relative;
-}
-
-.input-with-icon i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--gray);
-}
-
-.input-with-icon input {
-    padding-left: 40px;
 }
 
 input[type="text"],
@@ -818,4 +811,29 @@ tr:hover {
         top: 10px;
         right: 10px;
     }
+}
+
+.login-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+    padding: 30px;
+    max-width: 450px;
+    margin: 0 auto 40px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.error-message {
+    display: none;
+    padding: 12px;
+    border-radius: 8px;
+    background-color: rgba(239, 71, 111, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    margin-top: 15px;
+    align-items: center;
+    gap: 10px;
 }
