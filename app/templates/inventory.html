@@ -6,7 +6,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-    <style>
+    <link rel="stylesheet" href="../static/css/shared-lib.css">
+    <!--<style>
         * {
             margin: 0;
             padding: 0;
@@ -101,7 +102,7 @@
             text-decoration: none;
             border-radius: 5px;
         }
-    </style>
+    </style>-->
 </head>
 <body>
     <div class="container">
@@ -110,7 +111,7 @@
                 <h1>Software-Inventar</h1>
                 <div class="subtitle">Übersicht aller erfassten Softwareinstallationen</div>
             </div>
-            <button class="btn" onclick="window.location.href='/'">
+            <button class="btn-primary" onclick="window.location.href='/'">
                 <i class="fas fa-home"></i> Zurück zum Dashboard
             </button>
         </header>
@@ -150,5 +151,16 @@
             <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
         </a>
     </div>
+    <footer>
+        <p>
+            <i class="fas fa-shield-alt"></i> pfenning logistics &copy; 2025 | Version 0.2.4
+            <a href="/account" style="margin-left: 15px; color: var(--primary); text-decoration: none;">
+                <i class="fas fa-user"></i> Konto
+            </a>
+            <a href="/logout" style="margin-left: 15px; color: var(--primary); text-decoration: none;">
+                <i class="fas fa-sign-out-alt"></i> Abmelden
+            </a>
+        </p>
+    </footer>
 </body>
 </html>

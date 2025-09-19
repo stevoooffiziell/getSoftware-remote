@@ -12,13 +12,12 @@ import flask
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_executor import Executor
 from flask_httpauth import HTTPBasicAuth
-# from flask_login import logout_user
 
 import vars.global_vars as global_vars
 from functions.DatabaseManager import DatabaseManager
 from functions.pwsh_processor import main as host_processor
 from secret.user_management import USER_DETAILS_FILEPATH, user_auth
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash
 
 app = Flask(__name__, template_folder='templates', static_folder="static")
 app.secret_key = os.environ.get('SECRET_KEY', 'default-secret-key-for-sessions')
@@ -31,7 +30,6 @@ username_list: list = []
 users = {
     "admin": generate_password_hash(os.getenv('ADMIN_PASSWORD', 'default-secret'))
 }
-
 
 def read_user_details():
     with open(USER_DETAILS_FILEPATH, "r") as f:
@@ -94,7 +92,10 @@ if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_sh
 
 # TODO: Save userdata in database
 def init_user_database():
-    """Initialisiert die Benutzerdatenbank, falls nicht vorhanden"""
+    """
+    Initialisiert die Benutzerdatenbank, falls nicht vorhanden
+    :return:
+    """
     conn = db_manager.connect_db()
     cursor = conn.cursor()
 
@@ -117,24 +118,20 @@ init_user_database()
 
 @auth.verify_password
 def verify_password(username, password):
-    if username in username_list and user_auth(username, password):
+    if user_auth(username, password):
         return username
     return None
-
 
 # Login-Erforderlich für alle Routen
 @app.before_request
 def require_login():
-    # Routen, die keine Authentifizierung benötigen
     allowed_routes = ['login', 'static']
     if request.endpoint in allowed_routes:
         return None
 
-    # Prüfen, ob Benutzer eingeloggt ist (Session)
     if 'username' not in session:
         return redirect(url_for('login'))
 
-    # Letzte Aktivität aktualisieren
     session['last_activity'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     return None
 
@@ -173,20 +170,6 @@ def run_and_record():
         # Inventurstatus zurücksetzen
         global_vars.is_running = False
         global_vars.inventory_start_time = None
-
-
-def get_last_run():
-    conn = db_manager.connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_inventory_start from dbo.service_metadata")
-    date_last_run = cursor.fetchall()[0][0]
-
-    if date_last_run != "None":
-        dt = datetime.strptime(str(date_last_run), "%Y-%m-%d %H:%M:%S.%f")
-        de_format = dt.strftime("%d.%m.%Y %H:%M:%S")
-    else:
-        de_format = "Noch nicht ausgeführt"
-    return de_format
 
 
 def calc_next_run():
@@ -243,6 +226,19 @@ def dashboard():
                            next_run=next_run)
 
 
+def get_last_run():
+    conn = db_manager.connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_inventory_start from dbo.service_metadata")
+    date_last_run = cursor.fetchall()[0][0]
+
+    if date_last_run != "None":
+        dt = datetime.strptime(str(date_last_run), "%Y-%m-%d %H:%M:%S.%f")
+        de_format = dt.strftime("%d.%m.%Y %H:%M:%S")
+    else:
+        de_format = "Noch nicht ausgeführt"
+    return de_format
+
 def log_request(action):
     """Loggt API-Anfragen in einer Datei pro Tag"""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -255,7 +251,6 @@ def log_request(action):
             f.write(log_entry)
     except Exception as e:
         logging.error(f"Log-Schreibfehler: {str(e)}")
-
 
 @app.route('/start-inventory')
 def start_inventory():
@@ -271,7 +266,6 @@ def start_inventory():
     threading.Thread(target=run_and_record, daemon=True).start()
 
     return redirect('/inventory-progress')
-
 
 @app.route('/inventory-progress')
 def inventory_progress():
@@ -292,7 +286,6 @@ def inventory_progress():
                            processed_hosts=global_vars.processed_hosts,
                            remaining_systems=remaining(),
                            total_hosts=global_vars.total_hosts)
-
 
 @app.route('/inventory-progress-data')
 def progress_data():
@@ -316,11 +309,9 @@ def progress_data():
             'last_run': last_run_formatted
         })
 
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # Wenn bereits eingeloggt, weiterleiten zum Dashboard
-    if 'username' in session:
+    '''if 'username' in session:
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
@@ -342,15 +333,35 @@ def login():
         else:
             flash('Ungültige Anmeldedaten', 'error')
             return render_template('login.html')
-    return render_template('login.html')
+    return render_template('login.html')'''
+    if 'username' in session:
+        return redirect(url_for('dashboard'))
 
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        if not username or not password:
+            flash('Bitte füllen Sie beide Felder aus', 'error')
+            return render_template('login.html')
+
+        # Direkte Nutzung von user_auth zur Authentifizierung
+        if user_auth(username, password):
+            session['username'] = username
+            session['login_time'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            session['last_activity'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            flash('Sie wurden erfolgreich angemeldet', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Ungültige Anmeldedaten', 'error')
+            return render_template('login.html')
+    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
     session.clear()
     flash(f'Du wurdest erfolgreich abgemeldet')
     return redirect(url_for('login'))
-
 
 @app.route('/inventory', methods=['GET'])
 def get_inventory():
@@ -375,7 +386,6 @@ def get_inventory():
     data = get_data_from_database()
 
     return render_template('inventory.html', inventory=data)
-
 
 @app.route('/run-inventory', methods=['GET', 'POST'])
 @auth.login_required
@@ -405,7 +415,6 @@ def run_inventory():
 
     return redirect('/inventory-progress')
 
-
 @app.route('/stop-service', methods=['POST'])
 @auth.login_required
 def stop_service():
@@ -417,7 +426,6 @@ def stop_service():
     logging.warning("Service wurde deaktiviert")
     return jsonify({"status": "stopping"})
 
-
 @app.route('/start-service', methods=['POST'])
 @auth.login_required
 def start_service():
@@ -428,7 +436,6 @@ def start_service():
     db_manager.conn.commit()
     logging.info("Service wurde aktiviert")
     return jsonify({"status": "started"})
-
 
 @app.route('/logs', methods=['GET'])
 @auth.login_required
@@ -458,7 +465,6 @@ def show_logs():
             return render_template('error.html', error="Fehler beim Lesen der Log-Datei"), 500
 
     return render_template('logs.html', logs=log_files)
-
 
 @app.route('/status')
 def service_status():
@@ -521,7 +527,6 @@ def service_status():
                            threads=threads,
                            connection=connection)
 
-
 @app.route('/account')
 def account():
     """Kontoübersicht für den angemeldeten Benutzer"""
@@ -533,7 +538,6 @@ def account():
     username = session['username']
 
     return render_template('account.html', username=username)
-
 
 @app.route('/settings', methods=['GET', 'POST'])
 @auth.login_required
@@ -561,11 +565,9 @@ def settings():
 
     return render_template('settings.html', interval=interval_weeks)
 
-
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html', e=e), 404
-
 
 @app.errorhandler(500)
 def internal_server_error(e):
