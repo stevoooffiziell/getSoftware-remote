@@ -4,6 +4,7 @@ import re
 import logging
 import os
 import threading
+from pathlib import Path
 
 import pyodbc
 import configparser
@@ -523,7 +524,7 @@ def queries(table):
     """
     return query
 
-def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.key") -> str:
+def decrypt_password(encrypted_password: str, key_path: str = "../config/secret.key") -> str:
     """
     Uses the ``secret.key`` to decrypt the previously encrypted password.
 
@@ -534,10 +535,11 @@ def decrypt_password(encrypted_password: str, key_path: str = "config\\secret.ke
     :return: str
     """
 
+
     try:
         with open(key_path, "rb") as key_file:
             key = key_file.read()
-        fernet = Fernet(key)
+            fernet = Fernet(key)
         return fernet.decrypt(encrypted_password.encode()).decode()
     except Exception as e:
         logging.error(f"Decryption failed: {str(e)}")
