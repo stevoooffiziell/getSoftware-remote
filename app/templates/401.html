@@ -2,21 +2,27 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Serverfehler - Software Inventory</title>
+    <title>Seite nicht gefunden - Software Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../static/css/shared-lib.css">
     <link rel="stylesheet" href="../static/css/error.css">
 </head>
 <body>
-<img class="fixed-logo" alt="Pfenning group GmbH" src="../static/img/logo.png">
+<img class="fixed-logo" alt="Logo" src="../static/img/logo.png">
+
 <div class="container">
     <header>
         <div class="logo">
-            <i class="fas fa-boxes-stacked"></i>
+            <i class="fas fa-exclamation-triangle"></i>
             <div>
                 <h1>Software Inventory Service</h1>
-                <div class="subtitle">Fehler 500 - Serverfehler</div>
+                <div class="subtitle">Fehler 404 - Seite nicht gefunden</div>
             </div>
+        </div>
+        <div class="btn-group">
+            <button id="backBtn" onclick="window.location.href='/'">
+                <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
+            </button>
         </div>
         <div class="nav-links">
             <a href="/dashboard"><i class="fas fa-home"></i> Dashboard</a>
@@ -25,26 +31,21 @@
     </header>
 
     <div class="error-container">
-        <div class="error-card error-500">
-            <i class="error-icon-large fas fa-server"></i>
+        <div class="error-card error-401">
+            <i class="error-icon-large fas fa-exclamation-triangle"></i>
 
-            <h1 class="error-code">500</h1>
+            <h1 class="error-code">401</h1>
 
             <p class="error-message">
-                Ein interner Serverfehler ist aufgetreten.
+                Sie sind nicht authorisiert um auf diese Ressource zuzugreifen.
             </p>
 
             <div class="error-details">
                 <p><strong>Mögliche Ursachen:</strong></p>
                 <ul>
-                    <li>Ein temporäres Serverproblem</li>
-                    <li>Eine fehlerhafte Konfiguration</li>
-                    <li>Probleme mit der Datenbankverbindung</li>
-                </ul>
-                <p><strong>Was Sie tun können:</strong></p>
-                <ul>
-                    <li>Versuchen Sie die Seite später erneut</li>
-                    <li>Kontaktieren Sie den Systemadministrator</li>
+                    <li>Die Seite wurde verschoben oder umbenannt</li>
+                    <li>Sie haben eine falsche URL eingegeben</li>
+                    <li>Die Ressource wurde gelöscht</li>
                 </ul>
             </div>
 

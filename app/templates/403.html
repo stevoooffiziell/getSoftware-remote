@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Seite nicht gefunden - Software Inventory</title>
+    <title>Service deaktiviert - Software Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../static/css/shared-lib.css">
     <link rel="stylesheet" href="../static/css/error.css">
@@ -16,8 +16,13 @@
             <i class="fas fa-exclamation-triangle"></i>
             <div>
                 <h1>Software Inventory Service</h1>
-                <div class="subtitle">Fehler 404 - Seite nicht gefunden</div>
+                <div class="subtitle">Fehler 403 - Service deaktiviert - Service wird nicht gestartet</div>
             </div>
+        </div>
+        <div class="btn-group">
+            <button id="backBtn" onclick="window.location.href='/'">
+                <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
+            </button>
         </div>
         <div class="nav-links">
             <a href="/dashboard"><i class="fas fa-home"></i> Dashboard</a>
@@ -26,10 +31,10 @@
     </header>
 
     <div class="error-container">
-        <div class="error-card error-404">
-            <i class="error-icon-large fas fa-exclamation-triangle"></i>
+        <div class="error-card error-403">
+            <i class="error-icon-large fa-solid fa-square-xmark"></i>
 
-            <h1 class="error-code">404</h1>
+            <h1 class="error-code">403</h1>
 
             <p class="error-message">
                 Die angeforderte Seite konnte nicht gefunden werden.
