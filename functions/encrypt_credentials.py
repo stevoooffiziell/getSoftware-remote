@@ -21,9 +21,11 @@ else:
     with open(key_path, "rb") as f:
         key = f.read()
     print(f"🔑 Bestehender Schluessel aus '{key_path}' wurde geladen.")
+    fernet = Fernet(key)
+
 
 # Verschlüsselung
-fernet = Fernet(key)
+
 encrypted = fernet.encrypt(password.encode())
 print("\nVerschlüsseltes Passwort (füge das in deine config.ini ein):")
 print(encrypted.decode())
