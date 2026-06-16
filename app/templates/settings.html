@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Einstellungen - Software Inventory</title>
+    <link rel="stylesheet" href="../static/css/shared-lib.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Service-Einstellungen</h1>
+            <div class="btn-group">
+                <button class="btn-primary" onclick="window.location.href='/'">
+                    <i class="fas fa-home"></i> Dashboard
+                </button>
+            </div>
+        </header>
+
+        <div class="card">
+            <h2><i class="fas fa-cog" style="display: flex; justify-content: center; align-items: center;"></i> Inventur-Einstellungen</h2>
+
+            {% if message %}
+            <div class="message success">{{ message }}</div>
+            {% endif %}
+
+            {% if error %}
+            <div class="message error">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/settings">
+                <div class="form-group">
+                    <label for="interval">Inventur-Intervall (Wochen):</label>
+                    <input type="number" id="interval" name="interval"
+                           min="1" max="12" value="{{ interval }}" required>
+                    <small>Wie oft soll die automatische Inventur durchgeführt werden?</small>
+                </div>
+
+                <div class="btn-group">
+                    <button type="submit" class="btn">
+                        <i class="fas fa-save"></i> Einstellungen speichern
+                    </button>
+                </div>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-database" style="display: flex; justify-content: center; align-items: center;"></i> Datenbank-Einstellungen</h2>
+            <div class="form-group">
+                <label>Datenbank-Server:</label>
+                <input type="text" value="10.100.13.55" disabled>
+            </div>
+            <div class="form-group">
+                <label>Datenbank-Benutzer:</label>
+                <label>
+                    <input type="text" value="db-admin" disabled>
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Datenbank-Name:</label>
+                <input type="text" value="sw_inst" disabled>
+            </div>
+            <small>Datenbankeinstellungen können nur über die Konfigurationsdatei geändert werden.</small>
+        </div>
+
+        <a href="/" class="back-btn">
+            <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
+        </a>
+    </div>
+</body>
+</html>
