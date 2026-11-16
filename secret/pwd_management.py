@@ -5,7 +5,7 @@ import os
 import secrets
 import string
 
-USER_DETAILS_FILEPATH = ".\\users.txt"
+USER_DETAILS_FILEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.txt")
 PUNCTUATIONS = '!"§$%&@€#-_'
 
 DEFAULT_PASSWORD_LENGTH = 12
