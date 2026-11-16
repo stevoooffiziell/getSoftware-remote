@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="5">
+    <title>Service Status - Software Inventory</title>
+    <link rel="stylesheet" href="../app/static/css/shared-lib.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header Stile */
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-top: 5px;
+            font-weight: 500;
+        }
+
+        /* Button Stile */
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #backBtn {
+            background-color: var(--card-bg);
+            color: var(--dark);
+            border: 1px solid var(--border);
+        }
+
+        #backBtn:hover {
+            background-color: var(--light);
+            transform: translateY(-2px);
+        }
+
+        /* Status Cards */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            padding: 25px;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 i {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        /* Status-Indikatoren */
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .status-value {
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status-active {
+            background-color: rgba(6, 214, 160, 0.15);
+            color: #06a075;
+        }
+
+        .status-inactive {
+            background-color: rgba(239, 71, 111, 0.15);
+            color: #d6456b;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-active {
+            background-color: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .dot-inactive {
+            background-color: var(--danger);
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Uptime Chart Container */
+        .chart-container {
+            height: 250px;
+            margin-top: 20px;
+            background-color: var(--light);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--gray);
+        }
+
+        .switch {
+          position: relative;
+          display: inline-block;
+          width: 60px;
+          height: 34px;
+        }
+
+        .switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        .slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: .4s;
+        }
+
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 26px;
+          width: 26px;
+          left: 4px;
+          bottom: 4px;
+          background-color: white;
+          transition: .4s;
+        }
+
+        input:checked + .slider {
+          background-color: #06d6a0;
+        }
+
+        input:checked + .slider:before {
+          transform: translateX(26px);
+        }
+
+        .slider.round {
+          border-radius: 34px;
+        }
+
+        .slider.round:before {
+          border-radius: 50%;
+        }
+
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-heartbeat"></i>
+                <div>
+                    <h1>Service Status Dashboard</h1>
+                    <div class="subtitle">Überwachung des Inventarservices</div>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button id="backBtn" onclick="window.location.href='/'">
+                    <i class="fas fa-arrow-left"></i> Zurück zum Dashboard
+                </button>
+            </div>
+        </header>
+
+        <div class="status-grid">
+            <div class="card">
+                <h2><i class="fas fa-server" style="align-content: center; padding-left: 10px;"></i> Service Status</h2>
+
+                {% if message %}
+                <div class="message success">{{ message }}</div>
+                {% endif %}
+
+                {% if error %}
+                <div class="message error">{{ error }}</div>
+                {% endif %}
+
+                <div class="status-item">
+                    <span class="status-label">Service aktivieren</span>
+                    <span class="status-value">
+                        <label class="switch">
+                            <input type="checkbox" id="serviceToggle" {% if service_active == True %}checked{% endif %}>
+                            <span class="slider round"></span>
+                        </label>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Gesamtstatus</span>
+                    <span class="status-value">
+                        <span class="status-indicator {% if service_active == 1 %}status-active{% else %}status-inactive{% endif %}">
+                            <span class="status-dot {% if service_active == 1 %}dot-active{% else %}dot-inactive{% endif %}"></span>
+                            {% if service_active == 1%}Aktiviert{% else %}Deaktiviert{% endif %}
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Inventurprozess</span>
+                    <span class="status-value">
+                        <span class="status-indicator {% if inventory_running %}status-warning{% else %}status-inactive{% endif %}">
+                        <span class="status-dot {% if inventory_running %}dot-warning{% else %}dot-inactive{% endif %}"></span>
+                        {% if inventory_running %}Prozess läuft{% else %}Inaktiv{% endif %}
+                    </span>
+                </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Datenbankverbindung</span>
+                    <span class="status-value">
+                        <span class="status-indicator {% if connection %} status-active {% else %} status-inactive {% endif %}">
+                            <span class="status-dot {% if connection %} dot-active {% else %} dot-inactive {% endif %}"></span>
+                            {% if connection %}Aktiviert{% else %}Deaktiviert{% endif %}
+                        </span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Letzte Inventur</span>
+                    <span class="status-value" id="lastInventory">{{ last_run }}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Nächste Inventur</span>
+                    <span class="status-value" id="nextInventory">{{ next_run }}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Aktive Threads</span>
+                    <span class="status-value" id="activeThreads">{{threads}}</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-cog" style="align-content: center; padding-left: 10px;"></i> Service Konfiguration</h2>
+                <div class="status-item">
+                    <span class="status-label">Inventur-Intervall</span>
+                    <span class="status-value">{{interval_weeks}} Wochen</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Service-Laufzeit</span>
+                    <span class="status-value" id="uptime">{{uptime}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Letzter Neustart</span>
+                    <span class="status-value" id="lastRestart">{{last_restart}}</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-network-wired" style="align-content: center; padding-left: 7px; padding-bottom: 3px;"></i> Systemübersicht</h2>
+                <div class="status-item">
+                    <span class="status-label">Hostname</span>
+                    <span class="status-value" id="hostname">{{system_info.hostname}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">IP-Adresse</span>
+                    <span class="status-value" id="ipAddress">{{system_info.ip_address}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Betriebssystem</span>
+                    <span class="status-value" id="os">{{ system_info.os }}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Python-Version</span>
+                    <span class="status-value" id="pythonVersion">{{system_info.python_version}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Flask-Version</span>
+                    <span class="status-value" id="flaskVersion">{{system_info.flask_version}}</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fas fa-chart-line" style="display: flex; justify-content: center; align-items: center;"></i> Service-Aktivität</h2>
+                <div class="chart-container">
+                    <i class="fas fa-history" style="font-size: 3rem; margin-right: 15px;"></i>
+                    Aktivitätsverlauf (letzte 30 Tage)
+                </div>
+                <div class="status-item" style="margin-top: 20px;">
+                    <span class="status-label">Letzte erfolgreiche Inventur</span>
+                    <span class="status-value">{{last_run}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Geplante nächste Ausführung</span>
+                    <span class="status-value">{{next_run}}</span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-shield-alt"></i> Service Status Dashboard &copy; {{system_info.start_time.year}} | Letzter Systemstart: <span id="lastUpdate">{{system_info.start_time.strftime('%Y-%m-%d %H:%M:%S')}}</span></p>
+        </footer>
+    </div>
+
+    <script>
+        // Service Toggle
+        document.getElementById('serviceToggle').addEventListener('change', function() {
+            const action = this.checked ? '/start-service' : '/stop-service';
+
+            fetch(action, { method: 'POST' })
+                .then(response => {
+                    if (response.ok) {
+                        location.reload(); // Seite neu laden für aktuellen Status
+                    } else {
+                        alert('Aktion fehlgeschlagen!');
+                        this.checked = !this.checked; // Toggle zurücksetzen
+                    }
+                })
+                .catch(error => {
+                    console.error('Fehler:', error);
+                    this.checked = !this.checked; // Toggle zurücksetzen
+                });
+        });
+    </script>
+</body>
+</html>

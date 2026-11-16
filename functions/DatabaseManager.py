@@ -4,7 +4,6 @@ import re
 import logging
 import os
 import threading
-from pathlib import Path
 
 import pyodbc
 import configparser
@@ -75,7 +74,7 @@ class DatabaseManager:
         self.db = config.get('db', 'database')
         self.driver = config.get('db', 'driver')
 
-        self.passw = decrypt_password(self.pwd)
+        self.__passw = decrypt_password(self.pwd)
 
 
         connection_str =(
@@ -83,7 +82,7 @@ class DatabaseManager:
                                                             f"SERVER={self.host},1433;"
                                                             f"DATABASE={self.db};"
                                                             f"UID={self.user};"
-                                                            f"PWD={self.passw};"
+                                                            f"PWD={self.__passw};"
                                                             f"TrustServerCertificate=yes;"
                                                             f"Authentication=SqlPassword;"
         )
@@ -329,7 +328,7 @@ class DatabaseManager:
         try:
             self.connect_db()
             cursor = self.conn.cursor()
-            cursor.execute(f"SELECT {key} FROM service_metadata WHERE identifier = 1")
+            cursor.execute(f"SELECT {key} FROM service_metadata")
             row = cursor.fetchone()
             if row:
                 return row[0]
@@ -340,17 +339,32 @@ class DatabaseManager:
     def set_metadata(self, key, value):
         """Setzt einen Metadaten-Wert in der Datenbank"""
         try:
-            if self.get_metadata(key):
-                self.conn.execute(f"UPDATE service_metadata SET {key} = {value} WHERE identifier = 1")
+            # DEBUG: Aktuellen Wert ausgeben
+            current_value = self.get_metadata(key)
+            print(f"DEBUG: Setting metadata - Key: {key}, Value: {value}, Current: {current_value}")
+
+            # Korrekte SQL-Syntax - Spaltenname muss direkt im String sein
+            if current_value is not None:
+                # Für Integer-Werte
+                if isinstance(value, int):
+                    self.conn.execute(f"UPDATE service_metadata SET {key} = ? WHERE identifier = 1", value)
+                # Für String/Datetime-Werte
+                else:
+                    self.conn.execute(f"UPDATE service_metadata SET {key} = ? WHERE identifier = 1", value)
                 self.conn.commit()
+                print(f"DEBUG: UPDATE executed for {key} = {value}")
             else:
-                self.conn.execute(f"INSERT INTO service_metadata {key} VALUES ({value})")
+                # Fallback: INSERT (sollte normalerweise nicht vorkommen)
+                self.conn.execute(f"INSERT INTO service_metadata ({key}, identifier) VALUES (?, 1)", value)
                 self.conn.commit()
+                print(f"DEBUG: INSERT executed for {key} = {value}")
+
             self.logger.info(f"Metadata updated: {key} = {value}")
-            print(f"Metadata updated: {key} = {value}")
+            print(f"Metadata successfully updated: {key} = {value}")
             return True
         except Exception as e:
             self.logger.error(f"Error setting metadata for key '{key}': {str(e)}")
+            print(f"ERROR setting metadata: {str(e)}")
             return False
 
     def set_starttime(self):
@@ -524,7 +538,7 @@ def queries(table):
     """
     return query
 
-def decrypt_password(encrypted_password: str, key_path: str = "../config/secret.key") -> str:
+def decrypt_password(encrypted_password: str, key_path: str = None) -> str:
     """
     Uses the ``secret.key`` to decrypt the previously encrypted password.
 
@@ -534,13 +548,17 @@ def decrypt_password(encrypted_password: str, key_path: str = "../config/secret.
     :param key_path:
     :return: str
     """
-
-
+    if not key_path:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        key_dir = os.path.join(current_dir, "..", "config", "secret.key")
+        key_path = os.path.normpath(key_dir)
     try:
         with open(key_path, "rb") as key_file:
             key = key_file.read()
-            fernet = Fernet(key)
+        fernet = Fernet(key)
         return fernet.decrypt(encrypted_password.encode()).decode()
     except Exception as e:
         logging.error(f"Decryption failed: {str(e)}")
         raise RuntimeError("Password decryption error")
+
+DatabaseManager.ensure_tables_exist(DatabaseManager())

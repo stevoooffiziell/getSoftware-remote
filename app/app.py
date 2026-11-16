@@ -9,27 +9,39 @@ import time
 from datetime import datetime, timedelta
 
 import flask
+import pyodbc
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask.cli import load_dotenv
 from flask_executor import Executor
 from flask_httpauth import HTTPBasicAuth
 
 import vars.global_vars as global_vars
 from functions.DatabaseManager import DatabaseManager
-from functions.pwsh_processor import main as host_processor
+from functions.pwsh_processor import process_csv
 from secret.user_management import USER_DETAILS_FILEPATH, user_auth
-from werkzeug.security import generate_password_hash
 
 app = Flask(__name__, template_folder='templates', static_folder="static")
-app.secret_key = os.environ.get('SECRET_KEY', 'default-secret-key-for-sessions')
+
+load_dotenv()
+
+if app.secret_key is None:
+    # app.secret_key = os.getenv('SECRET_KEY', 'default-secret-key-for-sessions')
+    app.secret_key = os.environ.setdefault(key='SECRET_KEY', value='default-secret-key-for-sessions')
+    print(app.secret_key)
+
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=1)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+}
+
 # flask_cors.CORS(app)
 auth = HTTPBasicAuth()
 executor = Executor(app)
 
 username_list: list = []
-
-users = {
-    "admin": generate_password_hash(os.getenv('ADMIN_PASSWORD', 'default-secret'))
-}
 
 def read_user_details():
     with open(USER_DETAILS_FILEPATH, "r") as f:
@@ -58,6 +70,39 @@ execution_logs = {
 # Globaler Singleton für DatabaseManager
 db_manager = DatabaseManager()
 
+
+'''def init_user_database() -> None:
+    """
+    Initializes the user management database
+    """
+    with app.app_context():
+        db.create_all()
+
+        # Korrekte Abfrage für Rollen
+        if not Role.query.first():
+            roles = [
+                Role(name='User', description='Standard-User'),
+                Role(name='Admin', description='Administrator with full permissions'),
+                Role(name='Moderator', description='Moderator with extended permissions')
+            ]
+            db.session.add_all(roles)  # Korrektur: add_all statt add
+            db.session.commit()
+            print("Standard roles have been created")
+
+        # Korrekte Abfrage für Admin-User
+        if not User.query.filter_by(username='admin').first():  # Korrektur: filter_by(username='admin')
+            admin_role = Role.query.filter_by(name='Admin').first()  # Korrektur: filter_by(name='Admin')
+            admin_user = User(
+                username='admin',  # Kleingeschrieben für Konsistenz
+                email="admin@example.com",  # Korrekte E-Mail
+                role=admin_role
+            )
+            admin_user.set_password("admin123")
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Standard admin has been created")
+'''
+
 # log directory
 LOG_DIR = 'logs'
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -76,6 +121,16 @@ system_info = {
     'start_time': datetime.now()
 }
 
+try:
+    service_active_db = db_manager.get_metadata("service_active")
+    if service_active_db == 1:
+        global_vars.service_active.set()
+    else:
+        global_vars.service_active.clear()
+    print(f"Service status synchronized from database: {'Active' if service_active_db == 1 else 'Inactive'}")
+except Exception as e:
+    print(f"Error synchronizing service status: {e}")
+
 port = 5000  #hell no, go away...
 
 # Willkommensnachricht nur einmal beim Start anzeigen
@@ -87,40 +142,12 @@ if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' or not hasattr(app, 'welcome_sh
     print("=" * 80 + "\n")
     app.welcome_shown = True
 
-
-
-
-# TODO: Save userdata in database
-def init_user_database():
-    """
-    Initialisiert die Benutzerdatenbank, falls nicht vorhanden
-    :return:
-    """
-    conn = db_manager.connect_db()
-    cursor = conn.cursor()
-
-    # Tabelle für Benutzer erstellen, falls nicht vorhanden
-    cursor.execute("""
-        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='users' AND xtype='U')
-        CREATE TABLE users (
-            id INT IDENTITY(1,1) PRIMARY KEY,
-            username NVARCHAR(50) UNIQUE NOT NULL,
-            password_hash NVARCHAR(255) NOT NULL,
-            role NVARCHAR(50) DEFAULT 'user',
-            created_at DATETIME DEFAULT GETDATE(),
-            last_login DATETIME NULL
-        )
-    """)
-
-# Beim Start der App aufrufen
-init_user_database()
-
-
 @auth.verify_password
 def verify_password(username, password):
     if user_auth(username, password):
         return username
     return None
+
 
 # Login-Erforderlich für alle Routen
 @app.before_request
@@ -141,21 +168,20 @@ def run_and_record():
         try:
             db_manager.set_starttime()
             print("Function set_starttime started")
-        except Exception as e:
-            print(e)
+        except Exception as ex:
+            print(ex)
 
-        global start_time
         start_time = time.time()
         with global_vars.processed_hosts_lock:
             global_vars.total_hosts = global_vars.get_total_hosts()
         db_manager.set_starttime()
 
-        host_processor()
+        # host_processor()
+        process_csv(db_manager)
 
         # Endzeit speichern
         end_time = datetime.now()
         db_manager.set_nexttime(start_time)
-        calc_next_run()
 
         # Inventur erfolgreich beendet
         global_vars.last_run_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -170,10 +196,6 @@ def run_and_record():
         # Inventurstatus zurücksetzen
         global_vars.is_running = False
         global_vars.inventory_start_time = None
-
-
-def calc_next_run():
-    print("Next run has been calculated")
 
 
 @app.route('/')
@@ -239,6 +261,7 @@ def get_last_run():
         de_format = "Noch nicht ausgeführt"
     return de_format
 
+
 def log_request(action):
     """Loggt API-Anfragen in einer Datei pro Tag"""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -251,6 +274,7 @@ def log_request(action):
             f.write(log_entry)
     except Exception as e:
         logging.error(f"Log-Schreibfehler: {str(e)}")
+
 
 @app.route('/start-inventory')
 def start_inventory():
@@ -266,6 +290,7 @@ def start_inventory():
     threading.Thread(target=run_and_record, daemon=True).start()
 
     return redirect('/inventory-progress')
+
 
 @app.route('/inventory-progress')
 def inventory_progress():
@@ -287,13 +312,12 @@ def inventory_progress():
                            remaining_systems=remaining(),
                            total_hosts=global_vars.total_hosts)
 
+
 @app.route('/inventory-progress-data')
 def progress_data():
     if 'username' not in session:
         return redirect(url_for('login'))
-    print(
-        f"Fortschrittsdaten: is_running={global_vars.is_running}, processed={global_vars.processed_hosts}, total={global_vars.total_hosts}")
-    # Formatierung der letzten Laufzeit
+
     last_run_formatted = None
     if global_vars.last_run_time:
         last_run_formatted = global_vars.last_run_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -308,6 +332,7 @@ def progress_data():
             'start_time': start_time_str,
             'last_run': last_run_formatted
         })
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -357,11 +382,13 @@ def login():
             return render_template('login.html')
     return render_template('login.html')
 
+
 @app.route('/logout')
 def logout():
     session.clear()
     flash(f'Du wurdest erfolgreich abgemeldet')
     return redirect(url_for('login'))
+
 
 @app.route('/inventory', methods=['GET'])
 def get_inventory():
@@ -387,6 +414,7 @@ def get_inventory():
 
     return render_template('inventory.html', inventory=data)
 
+
 @app.route('/run-inventory', methods=['GET', 'POST'])
 @auth.login_required
 def run_inventory():
@@ -394,7 +422,7 @@ def run_inventory():
         return redirect(url_for('login'))
 
     if not global_vars.service_active.is_set():
-        return jsonify({"status": "error", "message": "Service disabled"}), 403
+        return render_template("403.html")
 
     # Prüfe, ob bereits eine Inventur läuft
     if global_vars.is_running:
@@ -415,27 +443,44 @@ def run_inventory():
 
     return redirect('/inventory-progress')
 
+
 @app.route('/stop-service', methods=['POST'])
 @auth.login_required
 def stop_service():
     if 'username' not in session:
         return jsonify({"status": "error", "message": "Authentication required"}), 401
 
+    print(f"DEBUG: Stopping service - current global_vars: {global_vars.service_active.is_set()}")
+
+    # Zuerst Datenbank, dann global_vars
+    success = db_manager.set_metadata("service_active", 0)
+    print(f"DEBUG: Database update success: {success}")
+
     global_vars.service_active.clear()
-    db_manager.set_metadata("service_active", 0)
+    print(f"DEBUG: After stop - global_vars: {global_vars.service_active.is_set()}")
+
     logging.warning("Service wurde deaktiviert")
     return jsonify({"status": "stopping"})
+
 
 @app.route('/start-service', methods=['POST'])
 @auth.login_required
 def start_service():
     if 'username' not in session:
         return jsonify({"status": "error", "message": "Authentication required"}), 401
+
+    print(f"DEBUG: Starting service - current global_vars: {global_vars.service_active.is_set()}")
+
+    # Zuerst Datenbank, dann global_vars
+    success = db_manager.set_metadata("service_active", 1)
+    print(f"DEBUG: Database update success: {success}")
+
     global_vars.service_active.set()
-    db_manager.conn.execute("UPDATE service_metadata SET service_active = 1 WHERE identifier = 1")
-    db_manager.conn.commit()
+    print(f"DEBUG: After start - global_vars: {global_vars.service_active.is_set()}")
+
     logging.info("Service wurde aktiviert")
     return jsonify({"status": "started"})
+
 
 @app.route('/logs', methods=['GET'])
 @auth.login_required
@@ -466,6 +511,7 @@ def show_logs():
 
     return render_template('logs.html', logs=log_files)
 
+
 @app.route('/status')
 def service_status():
     """
@@ -482,6 +528,7 @@ def service_status():
     """
     if 'username' not in session:
         return jsonify({"status": "error", "message": "Authentication required"}), 401
+
     inventory_running = any(t.name == "manual_inventory_thread" for t in threading.enumerate())
 
     # Uptime berechnen
@@ -490,25 +537,23 @@ def service_status():
     hours, remainder = divmod(uptime.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     uptime_str = f"{days} Tag(e), {hours} Stunde(n), {minutes} Minute(n), {seconds} Sekunde(n)"
+
     connection = False
+
     if db_manager.conn is not None:
         connection = True
 
     last_run = get_last_run()
 
-    last_run_value = db_manager.get_metadata("last_inventory_start")
+    service_active_db_2 = db_manager.get_metadata("service_active")
+    if service_active_db_2 == 1:
+        global_vars.service_active.set()
+    else:
+        global_vars.service_active.clear()
     status_interval_weeks = int(db_manager.get_metadata("interval_weeks"))
-    service_active_int = int(db_manager.get_metadata("service_active"))
 
-    # ES BERECHNET NUR, WENN KEIN DATUM VORHANDEN IST! ICH WUNDER MICH DIE GANZE KACK ZEIT WARUM DAS NICHT GEHT
     next_run = db_manager.get_metadata("next_inventory_run")
-    if next_run == "None":
-        try:
-            last_run_dt = datetime.strptime(last_run_value, "%Y-%m-%d %H:%M:%S")
-            next_run_dt = last_run_dt + timedelta(weeks=status_interval_weeks)
-            next_run = next_run_dt.strftime("%d.%m.%Y %H:%M:%S")
-        except (ValueError, TypeError):
-            next_run = "Ungültiges Datumsformat"
+    next_run = next_run.strftime("%d.%m.%Y %H:%M:%S")
 
     def get_active_man_threads_count():
         return sum(1 for t in threading.enumerate() if t.name.startswith("manual"))
@@ -517,15 +562,16 @@ def service_status():
 
     return render_template("status.html",
                            inventory_running=inventory_running,
-                           service_active=service_active_int,
+                           service_active=service_active_db_2,  # Verwende den DB-Wert
                            system_info=system_info,
                            uptime=uptime_str,
                            last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"),
                            last_run=last_run,
-                           next_run=next_run,
                            interval_weeks=status_interval_weeks,
                            threads=threads,
-                           connection=connection)
+                           connection=connection,
+                           next_run=next_run)
+
 
 @app.route('/account')
 def account():
@@ -538,6 +584,7 @@ def account():
     username = session['username']
 
     return render_template('account.html', username=username)
+
 
 @app.route('/settings', methods=['GET', 'POST'])
 @auth.login_required
@@ -565,10 +612,66 @@ def settings():
 
     return render_template('settings.html', interval=interval_weeks)
 
+
+@app.errorhandler(401)
+def not_authorized(e):
+    return render_template('401.html', e=e), 401
+
+
+@app.errorhandler(403)
+def not_authorized(e):
+    return render_template('401.html', e=e), 403
+
+
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html', e=e), 404
 
+
 @app.errorhandler(500)
 def internal_server_error(e):
     return render_template('500.html', e=e), 500
+
+
+@app.route('/test-db')
+def test_db():
+    """Testet die Datenbankverbindung und Metadata-Funktionen"""
+    try:
+        # Teste get_metadata
+        service_active = db_manager.get_metadata("service_active")
+        print(f"DEBUG: Current service_active from DB: {service_active} (Type: {type(service_active)})")
+
+        # Teste set_metadata
+        test_value = 1 if service_active == 0 else 0
+        print(f"DEBUG: Testing set_metadata with value: {test_value}")
+        success = db_manager.set_metadata("service_active", test_value)
+
+        # Überprüfe das Ergebnis
+        new_value = db_manager.get_metadata("service_active")
+        print(f"DEBUG: New service_active from DB: {new_value}")
+
+        return jsonify({
+            "success": success,
+            "old_value": service_active,
+            "new_value": new_value,
+            "test_value": test_value
+        })
+    except Exception as err:
+        return jsonify({"error": str(err)}), 500
+
+
+@app.route('/check-drivers')
+def check_drivers():
+    """Überprüft verfügbare ODBC-Treiber"""
+    try:
+        drivers = pyodbc.drivers()
+        return jsonify({
+            "available_drivers": drivers,
+            "current_database_uri": app.config['SQLALCHEMY_DATABASE_URI']
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/reset-database')
+def reset_database():
+    print("Database reset was successful")

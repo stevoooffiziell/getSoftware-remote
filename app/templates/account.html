@@ -215,19 +215,6 @@
 <body>
 <img class="fixed-logo" alt="Pfenning group GmbH" src="../static/img/logo.png">
     <div class="container">
-        <!-- Flash-Nachrichten -->
-        <div class="flash-messages">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="flash-message {% if category == 'error' %}flash-error{% else %}flash-success{% endif %}">
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-        </div>
-
         <header>
             <div class="logo">
                 <i class="fas fa-boxes-stacked"></i>

@@ -8,7 +8,7 @@
     <script src="../static/js/fun.js"></script>
 </head>
 <body>
-    <img class="fixed-logo" alt="Pfenning group GmbH" src="../static/img/logo.png">
+    <img src="../static/img/logo.png" alt="Pfenning group GmbH">
     <div class="container">
         <header>
             <div>
@@ -81,7 +81,7 @@
             </div>
         </div>
 
-        <h2><i class="fas fa-rocket" style="align-content: center; padding-left: 9px;"></i> Schnellzugriff</h2>
+        <h2><i class="fas fa-rocket" style="display: flex; justify-content: center; align-items: center;"></i> Schnellzugriff</h2>
         <div class="quick-links">
             <a href="/inventory" class="quick-link">
                 <i class="fas fa-list"></i>
@@ -117,5 +117,14 @@
             </p>
         </footer>
     </div>
+<script>
+        // Automatisches Ausblenden der Flash-Nachrichten nach 5 Sekunden
+        setTimeout(() => {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                message.style.display = 'none';
+            });
+        }, 5000);
+    </script>
 </body>
 </html>
