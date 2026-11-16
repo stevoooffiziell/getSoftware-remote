@@ -1,133 +1,174 @@
 # -*- coding: utf-8 -*-
 
-import re
+import configparser
 import logging
 import os
+import re
 import threading
+from datetime import datetime
 
 import pyodbc
-import configparser
-from datetime import datetime
 from cryptography.fernet import Fernet
 
-db_lock = threading.Lock()
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DEFAULT_CONFIG_FILE = os.path.join(PROJECT_ROOT, "config", "config.ini")
+LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
+
+# Reentrant: Methoden, die den Lock halten, rufen sich teilweise gegenseitig auf
+# (z.B. set_metadata -> connect_db). Die pyodbc-Verbindung wird von allen
+# Threads geteilt, daher läuft jeder DB-Zugriff unter diesem Lock.
+db_lock = threading.RLock()
+
+# Spalten der Tabelle service_metadata. Spaltennamen lassen sich nicht als
+# SQL-Parameter binden, deshalb werden sie gegen diese Liste geprüft.
+METADATA_COLUMNS = frozenset({
+    "service_active",
+    "last_inventory_start",
+    "next_inventory_run",
+    "interval_weeks",
+    "last_end_time",
+    "identifier",
+})
+
+INSTALL_DATE_FORMATS = ("%Y%m%d", "%Y-%m-%d", "%d.%m.%Y")
+
+_ARCH = r'x86_64|x64|x86|64-bit|32-bit'
+# Architektur in Klammern, z.B. (x64), (64-bit), (x86_64)
+_RE_ARCH_PAREN = re.compile(rf'\(\s*.*?({_ARCH}).*?\s*\)', re.IGNORECASE)
+# Architektur-Begriffe außerhalb von Klammern
+_RE_ARCH = re.compile(rf'\b({_ARCH})\b', re.IGNORECASE)
+# Versionen, z.B. "14.40.33816", "v11.10"
+_RE_VERSION = re.compile(r'\bv?\d+(\.\d+)*\b', re.IGNORECASE)
+_RE_EMPTY_PAREN = re.compile(r'\(\s*\)')
+# Leerzeichen um Bindestriche; Jahresbereiche wie 2015-2022 bleiben
+_RE_DASH = re.compile(r'(?<=\D)\s*-\s*(?=\D)')
+_RE_TRAILING = re.compile(r'[\s\-]+$')
+_RE_SPACES = re.compile(r'\s{2,}')
+_RE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 def clean_names(item):
-    # Architektur in Klammern entfernen (z.B. (x64), (64-bit), (x86_64))
-    name = re.sub(r'\(\s*.*?(x64|x86|64-bit|32-bit|x86_64).*?\s*\)', '', item, flags=re.IGNORECASE)
-    # Architektur-Begriffe außerhalb von Klammern entfernen (inkl. Unterstrich)
-    name = re.sub(r'\b(x64|x86|64-bit|32-bit|x86_64)\b', '', name, flags=re.IGNORECASE)
-    # Versionen entfernen, z.B. "14.40.33816", "v11.10"
-    name = re.sub(r'\bv?\d+(\.\d+)*\b', '', name, flags=re.IGNORECASE)
-    # Leere Klammern entfernen
-    name = re.sub(r'\(\s*\)', '', name)
-    # Leerzeichen um Bindestriche bereinigen, Jahresbereiche wie 2015-2022 bleiben
-    name = re.sub(r'(?<=\D)\s*-\s*(?=\D)', '-', name)
-    # Leerzeichen und Bindestriche am Ende entfernen
-    name = re.sub(r'[\s\-]+$', '', name)
-    # Mehrere Leerzeichen auf eins reduzieren
-    name = re.sub(r'\s{2,}', ' ', name)
-    name = name.strip()
-    return name
+    """Entfernt Architektur- und Versionsangaben aus einem Softwarenamen."""
+    name = _RE_ARCH_PAREN.sub('', item)
+    name = _RE_ARCH.sub('', name)
+    name = _RE_VERSION.sub('', name)
+    name = _RE_EMPTY_PAREN.sub('', name)
+    name = _RE_DASH.sub('-', name)
+    name = _RE_TRAILING.sub('', name)
+    name = _RE_SPACES.sub(' ', name)
+    return name.strip()
+
+
+def parse_install_date(value):
+    """Wandelt ein Installationsdatum in ein ``date`` um, ``None`` wenn unbekannt."""
+    if not value:
+        return None
+    value = str(value).strip()
+    for fmt in INSTALL_DATE_FORMATS:
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def normalize_publisher(publisher):
+    """Vereinheitlicht unterschiedliche Schreibweisen desselben Herstellers."""
+    publisher = str(publisher or '')
+    if "Interflex" in publisher:
+        return "Interflex Datensysteme GmbH & Co. KG"
+    if "Microsoft" in publisher:
+        return "Microsoft Corporation"
+    return publisher
 
 
 class DatabaseManager:
     _instance = None
     _initialized = False
+    _instance_lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
-        """
-        Singleton-Pattern: Ensures that the instance exists only once
-
-        :param args:
-        :param kwargs:
-        """
-        if not cls._instance:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+        """Singleton-Pattern: Ensures that the instance exists only once"""
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "config.ini")), transport='ntlm'):
+    def __init__(self, config_file=DEFAULT_CONFIG_FILE):
         """
         Initializes database connection only once
 
-        Needs the parameter ``config_file``
-
-        :param config_file:
+        :param config_file: path to the ``config.ini``
         """
         if self._initialized:
             return
-        self.config_file = config_file
-        config = configparser.ConfigParser()
-        read_files = config.read(self.config_file)
-        if not read_files:
-            raise FileNotFoundError(f"Config file not found: {self.config_file}")
 
+        # Präfixe für Konsolenausgaben
+        self.info = "[INFO]    |"
+        self.debug = "[DEBUG]   |"
+        self.warning = "[WARNING] |"
+        self.error = "[ERROR]   |"
+
+        self.config_file = config_file
+        self.existing_config = os.path.exists(config_file)
+        self.conn = None
+
+        config = configparser.ConfigParser()
+        if not config.read(self.config_file):
+            raise FileNotFoundError(f"Config file not found: {self.config_file}")
         if not config.has_section('db'):
             raise Exception("Config file does not have [db] section")
 
         self.pwd = config.get('db', 'pass')
-
         self.host = config.get('db', 'host', fallback='10.100.13.55')
         self.user = config.get('db', 'user', fallback='db-admin')
         self.db = config.get('db', 'database')
         self.driver = config.get('db', 'driver')
-
-        self.__passw = decrypt_password(self.pwd)
-
-
-        connection_str =(
-                f"DRIVER=" + "{" + f"{self.driver}" + "}" + f";"
-                                                            f"SERVER={self.host},1433;"
-                                                            f"DATABASE={self.db};"
-                                                            f"UID={self.user};"
-                                                            f"PWD={self.__passw};"
-                                                            f"TrustServerCertificate=yes;"
-                                                            f"Authentication=SqlPassword;"
-        )
-        self.connection_str = connection_str
-
         self.backup_table = config.get('db', 'backup-table')
         self.table_name = config.get('db', 'prod-table')
+
+        # Tabellennamen landen direkt im SQL-Text -> einmalig validieren
+        for table in (self.table_name, self.backup_table):
+            if not _RE_IDENTIFIER.match(table):
+                raise ValueError(f"Invalid table name: {table}")
+
+        self.__passw = decrypt_password(self.pwd)
+        self.connection_str = (
+            f"DRIVER={{{self.driver}}};"
+            f"SERVER={self.host},1433;"
+            f"DATABASE={self.db};"
+            f"UID={self.user};"
+            f"PWD={self.__passw};"
+            "TrustServerCertificate=yes;"
+            "Authentication=SqlPassword;"
+        )
 
         # Zeitstempel für Logs
         self.time_dmy = self.get_timestamp("dmy")
         self.time_hms = self.get_timestamp("hms")
 
-        # Initialize Logger
-        print(f"{self.get_timestamp('')} | [INFO]    | Initializing logger...")
+        print(f"{self.get_timestamp('')} | {self.info} Initializing logger...")
         self._init_logger()
 
-        # Konfiguration
-        self.info = "[INFO]    |"
-        self.debug = "[DEBUG]   |"
-        self.warning = "[WARNING] |"
-        self.error = "[ERROR]   |"
-        self.config_file = config_file
-        self.existing_config = os.path.exists(config_file)
-        self.conn = None
-
-        # Database-configuration
-        self._load_config()
         self._initialize_db_connection()
         self._ensure_metadata_table()
+        self.ensure_tables_exist()
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
         print(f"{self.get_logprint_info()} Database connection established.")
 
     def _init_logger(self):
-        self.log_file = os.path.join('../logs', f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
-        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        os.makedirs(LOG_DIR, exist_ok=True)
+        self.log_file = os.path.join(LOG_DIR, f'{self.time_dmy}_{self.time_hms}-dbmanager.log')
 
         self.logger = logging.getLogger('DatabaseManager')
         self.logger.setLevel(logging.INFO)
 
         # Add only one Handler if none exists
         if not self.logger.handlers:
-            file_handler = logging.FileHandler(self.log_file)
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            file_handler.setFormatter(formatter)
+            file_handler = logging.FileHandler(self.log_file, encoding='utf-8')
+            file_handler.setFormatter(
+                logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
             self.logger.addHandler(file_handler)
 
     @staticmethod
@@ -151,41 +192,11 @@ class DatabaseManager:
     def get_logprint_warning(self):
         return f"{self.get_timestamp('')} | {self.warning}"
 
-    def _load_config(self):
-        try:
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
-            self.logger.info("Configuration loaded successfully")
-        except Exception as e:
-            self.logger.error(f"Error loading configuration: {str(e)}")
-            raise RuntimeError(f"Configuration error: {str(e)}")
-
     def _initialize_db_connection(self):
-        """
-        Initializes the database connection.
-        Function reads the ``config_file`` and initializes the connection to the given database.
-        """
-        available_drivers = ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
-
-
+        """Opens the database connection described by the ``config_file``."""
         try:
-            self.conn = pyodbc.connect(self.connection_str)
-            if self.conn:
-                try:
-                    # Prüfe ob Verbindung noch gültig
-                    self.conn.execute("SELECT 1")
-                    self.logger.info("Using existing database connection")
-                    return
-                except pyodbc.Error:
-                    self.logger.warning("Existing connection invalid, reconnecting...")
-                    self.conn = None
-
             if not self.driver:
                 raise ValueError("Database driver not configured")
-
-            if self.driver not in available_drivers:
-                raise ValueError(
-                    f"Driver '{self.driver}' not installed. Available drivers: {available_drivers}")
 
             self.conn = pyodbc.connect(self.connection_str)
             self.conn.autocommit = False
@@ -199,72 +210,92 @@ class DatabaseManager:
             raise
 
     def _ensure_metadata_table(self):
-        """
-        Ensures that the table exists in the database
+        """Ensures that the metadata table exists in the database"""
+        create_table_sql = """
+        IF NOT EXISTS (
+            SELECT * FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_NAME = 'service_metadata'
+        )
+        BEGIN
+            CREATE TABLE service_metadata (
+                service_active INT,
+                last_inventory_start DATETIME,
+                next_inventory_run DATETIME,
+                interval_weeks INT,
+                last_end_time DATETIME,
+                identifier INT
+            );
 
-        :return:
+            INSERT INTO service_metadata (
+                service_active,
+                last_inventory_start,
+                next_inventory_run,
+                interval_weeks,
+                last_end_time,
+                identifier
+            ) VALUES (
+                0,
+                NULL,
+                DATEADD(WEEK, 2, GETDATE()),
+                2,
+                NULL,
+                1
+            );
+        END
         """
         try:
-            create_table_sql = """
-            IF NOT EXISTS (
-                SELECT * FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_NAME = 'service_metadata'
-            )
-            BEGIN
-                CREATE TABLE service_metadata (
-                    service_active INT,
-                    last_inventory_start DATETIME,
-                    next_inventory_start DATETIME,
-                    interval_weeks INT,
-                    last_end_time DATETIME,
-                    identifier INT
-                );
-                
-                DECLARE @init_last_run DATETIME = NULL;
-                DECLARE @init_next_run DATETIME = DATEADD(WEEK, 2, GETDATE());
-        
-                INSERT INTO service_metadata (
-                    service_active, 
-                    last_inventory_start, 
-                    next_inventory_run, 
-                    interval_weeks,
-                    last_end_time,
-                    identifier
-                ) VALUES (
-                    0,
-                    @init_last_run,
-                    @init_next_run,
-                    2,
-                    NULL,
-                    NULL
-                );
-            END
-            """
             with db_lock:
                 self.connect_db()
                 self.conn.execute(create_table_sql)
                 self.conn.commit()
-                self.logger.info("Service metadata table verified")
+            self.logger.info("Service metadata table verified")
         except Exception as e:
             self.logger.error(f"Error creating metadata table: {str(e)}")
             raise
 
     def connect_db(self):
         """
-        Stellt sicher, dass eine gültige DB-Verbindung besteht
+        Stellt sicher, dass eine DB-Verbindung besteht
 
-        :return:
+        :return: die offene ``pyodbc``-Verbindung
         """
-        if self.conn is None:
-            self._initialize_db_connection()
-        return self.conn
+        with db_lock:
+            if self.conn is None:
+                self._initialize_db_connection()
+            return self.conn
+
+    def _reset_connection(self):
+        """Verwirft die Verbindung, damit der nächste Zugriff neu verbindet."""
+        with db_lock:
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
+
+    def fetch_all(self, sql, *params):
+        """
+        Führt eine lesende Abfrage threadsicher aus.
+
+        :return: ``(columns, rows)``
+        """
+        with db_lock:
+            try:
+                cursor = self.connect_db().cursor()
+                try:
+                    cursor.execute(sql, *params)
+                    columns = [column[0] for column in cursor.description]
+                    return columns, cursor.fetchall()
+                finally:
+                    cursor.close()
+            except pyodbc.OperationalError:
+                # Verbindung abgerissen -> beim nächsten Aufruf neu aufbauen
+                self._reset_connection()
+                raise
 
     def dependencies_check(self):
-        """
-        Checks if a configuration file is existing
-
-        :return:
-        """
+        """Checks if a configuration file is existing"""
         if self.existing_config:
             self.logger.info("Configuration file verified")
             print(f"{self.get_logprint_info()} Configuration file is set.")
@@ -273,17 +304,12 @@ class DatabaseManager:
             print(f"{self.get_logprint_error()} Config file is not in the expected directory!")
             raise FileNotFoundError("Configuration file missing")
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        context manager: disconnect automatically
-
-        :param exc_type:
-        :param exc_val:
-        :param exc_tb:
-        :return:
-        """
+    def close(self):
         try:
-            self.conn.close()
+            with db_lock:
+                if self.conn is not None:
+                    self.conn.close()
+                    self.conn = None
             self.logger.info(f"Connection to database {self.db} has been closed successfully.")
             print(f"{self.get_logprint_info()} Connection to database {self.db} has been closed successfully")
         except Exception as e:
@@ -293,45 +319,42 @@ class DatabaseManager:
                 f"{self.get_logprint_error()} The connection to the database {self.db} hasn't been closed successfully!")
             print(f"{self.get_logprint_error()} An unknown error has occured: {e}")
 
-    def ensure_tables_exist(self):
-        """
-        ensures that required tables exist
+    def __enter__(self):
+        return self
 
-        :return: Any
-        """
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """context manager: disconnect automatically"""
+        self.close()
+
+    def ensure_tables_exist(self):
+        """ensures that required tables exist"""
+        # TODO: backup table - implement it or create a backup SQL-file instead?
         try:
             with db_lock:
-                # productive table
+                self.connect_db()
                 self.conn.execute(queries(self.table_name))
-                self.logger.info(f"Checked/Created table {self.table_name}")
-
                 self.conn.commit()
-
-                # backup table TODO: implement it or abandon it? Or get a better solution. Create a backup SQL-file?
-                #                    Makes sense to me tho.
-                '''self.conn.execute(queries(self.backup_table))
-                self.logger.info(f"Checked/Created table {self.backup_table}")'''
-
-                self.conn.commit()
-
+            self.logger.info(f"Checked/Created table {self.table_name}")
         except Exception as e:
             self.logger.error(f"Table creation failed: {str(e)}")
             raise
+
+    @staticmethod
+    def _check_metadata_key(key):
+        if key not in METADATA_COLUMNS:
+            raise ValueError(f"Unknown metadata key: {key}")
 
     def get_metadata(self, key):
         """
         Holt einen Metadaten-Wert aus der Datenbank
 
-        :param key:
-        :return:
+        :param key: Spaltenname in ``service_metadata``
+        :return: der Wert oder ``None``
         """
         try:
-            self.connect_db()
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT {key} FROM service_metadata")
-            row = cursor.fetchone()
-            if row:
-                return row[0]
+            self._check_metadata_key(key)
+            _, rows = self.fetch_all(f"SELECT TOP 1 {key} FROM service_metadata")
+            return rows[0][0] if rows else None
         except Exception as e:
             self.logger.error(f"Error getting metadata for key '{key}': {str(e)}")
             return None
@@ -339,173 +362,80 @@ class DatabaseManager:
     def set_metadata(self, key, value):
         """Setzt einen Metadaten-Wert in der Datenbank"""
         try:
-            # DEBUG: Aktuellen Wert ausgeben
-            current_value = self.get_metadata(key)
-            print(f"DEBUG: Setting metadata - Key: {key}, Value: {value}, Current: {current_value}")
-
-            # Korrekte SQL-Syntax - Spaltenname muss direkt im String sein
-            if current_value is not None:
-                # Für Integer-Werte
-                if isinstance(value, int):
-                    self.conn.execute(f"UPDATE service_metadata SET {key} = ? WHERE identifier = 1", value)
-                # Für String/Datetime-Werte
-                else:
-                    self.conn.execute(f"UPDATE service_metadata SET {key} = ? WHERE identifier = 1", value)
-                self.conn.commit()
-                print(f"DEBUG: UPDATE executed for {key} = {value}")
-            else:
-                # Fallback: INSERT (sollte normalerweise nicht vorkommen)
-                self.conn.execute(f"INSERT INTO service_metadata ({key}, identifier) VALUES (?, 1)", value)
-                self.conn.commit()
-                print(f"DEBUG: INSERT executed for {key} = {value}")
-
+            self._check_metadata_key(key)
+            with db_lock:
+                conn = self.connect_db()
+                try:
+                    cursor = conn.execute(
+                        f"UPDATE service_metadata SET {key} = ? WHERE identifier = 1", value)
+                    if cursor.rowcount == 0:
+                        # Fallback: Zeile existiert noch nicht
+                        conn.execute(
+                            f"INSERT INTO service_metadata ({key}, identifier) VALUES (?, 1)", value)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
             self.logger.info(f"Metadata updated: {key} = {value}")
-            print(f"Metadata successfully updated: {key} = {value}")
             return True
         except Exception as e:
             self.logger.error(f"Error setting metadata for key '{key}': {str(e)}")
-            print(f"ERROR setting metadata: {str(e)}")
+            print(f"{self.get_logprint_error()} Error setting metadata: {str(e)}")
             return False
 
-    def set_starttime(self):
-        cursor = self.conn.cursor()
-        x = datetime.now()
-        cursor.execute("UPDATE service_metadata SET last_inventory_start = ? WHERE identifier = 1", x)
-        cursor.commit()
-        return print(f"Metadata has been updated to: {x}")
+    def set_starttime(self, value=None):
+        return self.set_metadata("last_inventory_start", value or datetime.now())
 
     def set_nexttime(self, value):
-        cursor = self.conn.cursor()
-        cursor.execute("UPDATE service_metadata SET next_inventory_run = ? WHERE identifier = 1", value)
-        cursor.commit()
-        return print(f"Metadata 'next_inventory_run' has been updated to: {value}")
+        return self.set_metadata("next_inventory_run", value)
 
     def insert_software(self, software_list, hostname):
         """
-        Insert the values from the gathered JSON file into the database
+        Insert the values from the gathered software list into the database
 
-        ``query`` is declared as a local variable. It's not dynamic at this point, but it will be in the future
-        :var self.query:
-        :param software_list:
+        :param software_list: list of dicts (Name, Publisher, InstallDate, Size, Version)
         :param hostname:
-        :return:
         """
+        query = f"""
+                INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """
+        # Die Aufbereitung braucht keine DB und läuft daher außerhalb des Locks
+        rows = [
+            (
+                clean_names(str(item.get('Name') or 'Unknown'))[:90],
+                normalize_publisher(item.get('Publisher'))[:90],
+                parse_install_date(item.get('InstallDate')),
+                item.get('Size') or 0,
+                str(item.get('Version') or '0.0.0')[:50],
+                hostname[:80],
+                True,  # isNew
+            )
+            for item in software_list
+        ]
+        if not rows:
+            self.logger.info(f"No records to insert for {hostname}")
+            return
 
         try:
             with db_lock:  # Thread-security
-                # Need to reconnect?
-                self.connect_db()
-                # Ensure that tables exist
-                # self.ensure_tables_exist()
-
-                query = f"""
-                        INSERT INTO [{self.table_name}] (name, publisher, installDate, programSize, version, hostname, isNew)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """
-
-                insert_count = 0
-
-                for item in software_list:
-                    name = item.get('Name') or 'Unknown'
-                    publisher = item.get('Publisher') or ''
-                    install_date_str = item.get('InstallDate')
-                    size = item.get('Size') or 0
-                    version = item.get('Version') or '0.0.0'
-                    # process installDate
-                    install_date = None
-                    if install_date_str := item.get('InstallDate'):
-                        try:
-                            # support different time formats
-                            for fmt in ("%Y%m%d", "%Y-%m-%d", "%d.%m.%Y"):
-                                try:
-                                    install_date = datetime.strptime(install_date_str, fmt).date()
-                                    break
-                                except ValueError:
-                                    continue
-                        except Exception:
-                            install_date = None
-
-                    # unification same publisher with different spelling
-                    publisher = str(item.get('Publisher', ''))
-                    if "Interflex" in publisher:
-                        publisher = "Interflex Datensysteme GmbH & Co. KG"
-                    if "Microsoft" in publisher:
-                        publisher = "Microsoft Corporation"
-
-
-                    name = clean_names(item.get('Name'))
-
-                    # insert data
-                    self.conn.execute(query, (
-                        name,
-                        publisher[:90],  # Auf maximale Länge kürzen
-                        install_date,
-                        size,
-                        version[:50],
-                        hostname,
-                        True  # isNew = True
-                    ))
-                    insert_count += 1
-
+                cursor = self.connect_db().cursor()
+                try:
+                    # Ein Roundtrip für alle Zeilen statt eines pro Zeile
+                    cursor.fast_executemany = True
+                    cursor.executemany(query, rows)
+                finally:
+                    cursor.close()
                 self.conn.commit()
-                self.logger.info(f"Inserted {insert_count} records for {hostname}")
-                print(f"{self.get_logprint_info()} Inserted {insert_count} items for {hostname}")
 
+            self.logger.info(f"Inserted {len(rows)} records for {hostname}")
+            print(f"{self.get_logprint_info()} Inserted {len(rows)} items for {hostname}")
         except Exception as e:
             self.logger.error(f"Insert failed for {hostname}: {str(e)}")
-            if self.conn:
-                self.conn.rollback()
+            with db_lock:
+                if self.conn:
+                    self.conn.rollback()
             raise
-
-    '''def backup_database_table(self):
-        """
-
-        :return:
-        """
-        try:
-            with db_lock:
-                self.ensure_tables_exist()
-
-                copy_query = f"""
-                        INSERT INTO {self.backup_table} (name, publisher, installDate, programSize, version, hostname, isNew)
-                        SELECT name, publisher, installDate, programSize, version, hostname, isNew
-                        FROM {self.table_name}
-                        """
-
-                self.conn.execute(copy_query)
-                self.conn.commit()
-
-                self.logger.info(f"Backup created in {self.backup_table}")
-                print(f"{self.get_logprint_info()} Backup created successfully")
-
-        except Exception as e:
-            self.logger.error(f"Backup failed: {str(e)}")
-            if self.conn:
-                self.conn.rollback()
-            raise'''
-
-    '''def reset_data_table(self):
-        """
-
-        :return:
-        """
-        try:
-            with db_lock:
-                self.connect_db()
-
-                update_query = f"UPDATE {self.table_name} SET isNew = 1;"
-
-                self.conn.execute(update_query)
-                self.conn.commit()
-
-                self.logger.info("Reset isNew flags")
-                print(f"{self.get_logprint_info()} Reset completed")
-
-        except Exception as e:
-            self.logger.error(f"Reset failed: {str(e)}")
-            if self.conn:
-                self.conn.rollback()
-            raise'''
 
 
 def queries(table):
@@ -516,10 +446,10 @@ def queries(table):
     :return: ``str``
     """
     # Ensure that the table name is valid
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+    if not _RE_IDENTIFIER.match(table):
         raise ValueError(f"Invalid table name: {table}")
 
-    query = f"""
+    return f"""
     IF NOT EXISTS (
         SELECT * FROM INFORMATION_SCHEMA.TABLES
         WHERE TABLE_NAME = '{table}' AND TABLE_SCHEMA = 'dbo'
@@ -536,29 +466,22 @@ def queries(table):
         );
     END
     """
-    return query
+
 
 def decrypt_password(encrypted_password: str, key_path: str = None) -> str:
     """
     Uses the ``secret.key`` to decrypt the previously encrypted password.
 
-    ``key_path`` folder path where the secret.key is located
-
     :param encrypted_password:
-    :param key_path:
+    :param key_path: path of the secret.key, defaults to ``config/secret.key``
     :return: str
     """
     if not key_path:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        key_dir = os.path.join(current_dir, "..", "config", "secret.key")
-        key_path = os.path.normpath(key_dir)
+        key_path = os.path.join(PROJECT_ROOT, "config", "secret.key")
     try:
         with open(key_path, "rb") as key_file:
             key = key_file.read()
-        fernet = Fernet(key)
-        return fernet.decrypt(encrypted_password.encode()).decode()
+        return Fernet(key).decrypt(encrypted_password.encode()).decode()
     except Exception as e:
         logging.error(f"Decryption failed: {str(e)}")
         raise RuntimeError("Password decryption error")
-
-DatabaseManager.ensure_tables_exist(DatabaseManager())

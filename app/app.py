@@ -3,9 +3,9 @@
 import logging
 import os
 import platform
+import secrets
 import socket
 import threading
-import time
 from datetime import datetime, timedelta
 
 import flask
@@ -16,18 +16,17 @@ from flask_executor import Executor
 from flask_httpauth import HTTPBasicAuth
 
 import vars.global_vars as global_vars
-from functions.DatabaseManager import DatabaseManager
-from functions.pwsh_processor import process_csv
-from secret.user_management import USER_DETAILS_FILEPATH, user_auth
+from functions.DatabaseManager import DatabaseManager, LOG_DIR
+from functions.pwsh_processor import run_inventory_cycle
+from secret.user_management import user_auth
 
 app = Flask(__name__, template_folder='templates', static_folder="static")
 
 load_dotenv()
 
-if app.secret_key is None:
-    # app.secret_key = os.getenv('SECRET_KEY', 'default-secret-key-for-sessions')
-    app.secret_key = os.environ.setdefault(key='SECRET_KEY', value='default-secret-key-for-sessions')
-    print(app.secret_key)
+# Ohne SECRET_KEY in der Umgebung/.env wird ein zufälliger Schlüssel erzeugt
+# (Sitzungen sind dann nach einem Neustart ungültig).
+app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=1)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
@@ -41,25 +40,6 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 auth = HTTPBasicAuth()
 executor = Executor(app)
 
-username_list: list = []
-
-def read_user_details():
-    with open(USER_DETAILS_FILEPATH, "r") as f:
-        for line in f:
-            content = line.split(" ")
-            if content[0] not in username_list:
-                username_list.append(content[0])
-                salt = content[1].split("$")[0]
-                hash_value = content[1].split("$")[1]
-                print(
-                    f"{username_list}\n"
-                    f"{hash_value}\n"
-                    f"{salt}"
-                )
-            return username_list
-    return username_list
-
-
 # In-Memory-Log-Speicher
 execution_logs = {
     "current": "",
@@ -71,45 +51,31 @@ execution_logs = {
 db_manager = DatabaseManager()
 
 
-'''def init_user_database() -> None:
-    """
-    Initializes the user management database
-    """
-    with app.app_context():
-        db.create_all()
-
-        # Korrekte Abfrage für Rollen
-        if not Role.query.first():
-            roles = [
-                Role(name='User', description='Standard-User'),
-                Role(name='Admin', description='Administrator with full permissions'),
-                Role(name='Moderator', description='Moderator with extended permissions')
-            ]
-            db.session.add_all(roles)  # Korrektur: add_all statt add
-            db.session.commit()
-            print("Standard roles have been created")
-
-        # Korrekte Abfrage für Admin-User
-        if not User.query.filter_by(username='admin').first():  # Korrektur: filter_by(username='admin')
-            admin_role = Role.query.filter_by(name='Admin').first()  # Korrektur: filter_by(name='Admin')
-            admin_user = User(
-                username='admin',  # Kleingeschrieben für Konsistenz
-                email="admin@example.com",  # Korrekte E-Mail
-                role=admin_role
-            )
-            admin_user.set_password("admin123")
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Standard admin has been created")
-'''
-
 # log directory
-LOG_DIR = 'logs'
 os.makedirs(LOG_DIR, exist_ok=True)
+
+DATE_FMT_DE = "%d.%m.%Y %H:%M:%S"
+DATE_FMT_ISO = "%Y-%m-%d %H:%M:%S"
+INVENTORY_THREAD_NAME = "manual_inventory_thread"
 
 # Logger für Applikationslogs
 logging.basicConfig(filename=os.path.join(LOG_DIR, f'{db_manager.get_timestamp("dmy")}-app.log'), level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
+
+def format_dt(value, fmt, default=None):
+    """Formatiert ein ``datetime``; liefert ``default`` für fehlende Werte."""
+    return value.strftime(fmt) if isinstance(value, datetime) else default
+
+
+def sync_service_status():
+    """Übernimmt den Service-Status aus der Datenbank und gibt ihn zurück."""
+    service_active_db = db_manager.get_metadata("service_active")
+    if service_active_db == 1:
+        global_vars.service_active.set()
+    else:
+        global_vars.service_active.clear()
+    return service_active_db
+
 
 # Systeminformationen
 system_info = {
@@ -122,12 +88,7 @@ system_info = {
 }
 
 try:
-    service_active_db = db_manager.get_metadata("service_active")
-    if service_active_db == 1:
-        global_vars.service_active.set()
-    else:
-        global_vars.service_active.clear()
-    print(f"Service status synchronized from database: {'Active' if service_active_db == 1 else 'Inactive'}")
+    print(f"Service status synchronized from database: {'Active' if sync_service_status() == 1 else 'Inactive'}")
 except Exception as e:
     print(f"Error synchronizing service status: {e}")
 
@@ -159,107 +120,44 @@ def require_login():
     if 'username' not in session:
         return redirect(url_for('login'))
 
-    session['last_activity'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    session['last_activity'] = datetime.now().strftime(DATE_FMT_DE)
     return None
 
 
 def run_and_record():
     try:
-        try:
-            db_manager.set_starttime()
-            print("Function set_starttime started")
-        except Exception as ex:
-            print(ex)
-
-        start_time = time.time()
-        with global_vars.processed_hosts_lock:
-            global_vars.total_hosts = global_vars.get_total_hosts()
-        db_manager.set_starttime()
-
-        # host_processor()
-        process_csv(db_manager)
-
-        # Endzeit speichern
-        end_time = datetime.now()
-        db_manager.set_nexttime(start_time)
-
-        # Inventur erfolgreich beendet
-        global_vars.last_run_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
-        with global_vars.processed_hosts_lock:
-            global_vars.last_host_count = global_vars.processed_hosts
-            # Stelle sicher, dass processed_hosts gleich total_hosts ist
-            if global_vars.processed_hosts < global_vars.total_hosts:
-                global_vars.processed_hosts = global_vars.total_hosts
+        run_inventory_cycle(db_manager)
     except Exception as e:
         logging.error(f"Error during manual inventory: {str(e)}")
-    finally:
-        # Inventurstatus zurücksetzen
-        global_vars.is_running = False
-        global_vars.inventory_start_time = None
+
+
+def launch_inventory():
+    """Startet die Inventur im Hintergrund, sofern nicht bereits eine läuft."""
+    if global_vars.begin_run():
+        threading.Thread(target=run_and_record, name=INVENTORY_THREAD_NAME, daemon=True).start()
+    return redirect(url_for('inventory_progress'))
 
 
 @app.route('/')
 def dashboard():
     """Haupt-Dashboard-Seite"""
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    def get_distinct_number_hosts():
-        conn = db_manager.connect_db()
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT COUNT(DISTINCT hostname) from dbo.{db_manager.table_name}")
-
-        count = cursor.fetchall()
-        return count[0][0]
-
-    def get_distinct_number_software():
-        conn = db_manager.connect_db()
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT COUNT(DISTINCT name) from dbo.{db_manager.table_name}")
-        count = cursor.fetchall()
-        cursor.execute(f"SELECT COUNT(name) from dbo.{db_manager.table_name}")
-        count_all = cursor.fetchall()
-
-        return count[0][0], count_all[0][0]
-
-    def get_distinct_number_publisher():
-        conn = db_manager.connect_db()
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT COUNT(DISTINCT publisher) from dbo.{db_manager.table_name}")
-
-        count = cursor.fetchall()
-        return count[0][0]
-
-    last_run = get_last_run()
-    count_hosts = get_distinct_number_hosts()
-    count_sw = get_distinct_number_software()[0]
-    count_sw_all = get_distinct_number_software()[1]
-    count_publisher = get_distinct_number_publisher()
-
-    next_run = db_manager.get_metadata("next_inventory_run")
-    next_run = next_run.strftime("%Y-%m-%d %H:%M:%S")
+    # Alle Kennzahlen in einer einzigen Abfrage statt fünf Tabellenscans
+    _, rows = db_manager.fetch_all(
+        f"SELECT COUNT(DISTINCT hostname), COUNT(DISTINCT name), COUNT(name), COUNT(DISTINCT publisher) "
+        f"FROM dbo.{db_manager.table_name}")
+    count_hosts, count_sw, count_sw_all, count_publisher = rows[0]
 
     return render_template('dashboard.html',
                            count_hosts=count_hosts,
                            count_sw_all=count_sw_all,
                            count_sw=count_sw,
                            count_publisher=count_publisher,
-                           last_run=last_run,
-                           next_run=next_run)
+                           last_run=get_last_run(),
+                           next_run=format_dt(db_manager.get_metadata("next_inventory_run"), DATE_FMT_ISO, "-"))
 
 
 def get_last_run():
-    conn = db_manager.connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_inventory_start from dbo.service_metadata")
-    date_last_run = cursor.fetchall()[0][0]
-
-    if date_last_run != "None":
-        dt = datetime.strptime(str(date_last_run), "%Y-%m-%d %H:%M:%S.%f")
-        de_format = dt.strftime("%d.%m.%Y %H:%M:%S")
-    else:
-        de_format = "Noch nicht ausgeführt"
-    return de_format
+    return format_dt(db_manager.get_metadata("last_inventory_start"), DATE_FMT_DE, "Noch nicht ausgeführt")
 
 
 def log_request(action):
@@ -270,7 +168,7 @@ def log_request(action):
     log_entry = f"[{datetime.now()}] {action} {request.remote_addr} {request.url}\n"
 
     try:
-        with open(log_file, "a") as f:
+        with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_entry)
     except Exception as e:
         logging.error(f"Log-Schreibfehler: {str(e)}")
@@ -278,93 +176,43 @@ def log_request(action):
 
 @app.route('/start-inventory')
 def start_inventory():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    # Hosts aus CSV zählen
-    global_vars.inventory_start_time = datetime.now()
-    with global_vars.processed_hosts_lock:
-        global_vars.processed_hosts = 0
-    global_vars.is_running = True
-
-    # Starte Inventurprozess im Hintergrund
-    threading.Thread(target=run_and_record, daemon=True).start()
-
-    return redirect('/inventory-progress')
+    return launch_inventory()
 
 
 @app.route('/inventory-progress')
 def inventory_progress():
-    if 'username' not in session:
-        return redirect(url_for('login'))
+    with global_vars.processed_hosts_lock:
+        processed = global_vars.processed_hosts
+        total = global_vars.total_hosts
 
-    def percentage():
-        with open('csv\\hosts.csv', 'r') as f:
-            for _ in f:
-                rows = + 1
-        return rows
+    percentage = min(100, round(processed / total * 100)) if total else 0
 
-    def remaining():
-        x = global_vars.total_hosts - global_vars.processed_hosts
-        return x
-
-    return render_template('process.html', percentage=percentage(),
-                           processed_hosts=global_vars.processed_hosts,
-                           remaining_systems=remaining(),
-                           total_hosts=global_vars.total_hosts)
+    return render_template('process.html', percentage=percentage,
+                           processed_hosts=processed,
+                           remaining_systems=max(total - processed, 0),
+                           total_hosts=total)
 
 
 @app.route('/inventory-progress-data')
 def progress_data():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    last_run_formatted = None
-    if global_vars.last_run_time:
-        last_run_formatted = global_vars.last_run_time.strftime("%Y-%m-%d %H:%M:%S")
-    start_time_str = None
-    if global_vars.inventory_start_time:
-        start_time_str = global_vars.inventory_start_time.strftime("%Y-%m-%d %H:%M:%S")
     with global_vars.processed_hosts_lock:
         return jsonify({
             'is_running': global_vars.is_running,
             'total_hosts': global_vars.total_hosts,
             'processed_hosts': global_vars.processed_hosts,
-            'start_time': start_time_str,
-            'last_run': last_run_formatted
+            'start_time': format_dt(global_vars.inventory_start_time, DATE_FMT_ISO),
+            'last_run': format_dt(global_vars.last_run_time, DATE_FMT_ISO)
         })
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    '''if 'username' in session:
-        return redirect(url_for('dashboard'))
-
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-
-        if not username or not password:
-            flash('Bitte füllen Sie beide Felder aus', 'error')
-            return render_template('login.html')
-
-        read_user_details()
-        # Überprüfen der Anmeldedaten
-        if username in username_list and user_auth(username, password):
-            session['username'] = username
-            session['login_time'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-            session['last_activity'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-            flash('Sie wurden erfolgreich angemeldet', 'success')
-            return redirect(url_for('dashboard'))
-        else:
-            flash('Ungültige Anmeldedaten', 'error')
-            return render_template('login.html')
-    return render_template('login.html')'''
     if 'username' in session:
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
 
         if not username or not password:
             flash('Bitte füllen Sie beide Felder aus', 'error')
@@ -373,8 +221,7 @@ def login():
         # Direkte Nutzung von user_auth zur Authentifizierung
         if user_auth(username, password):
             session['username'] = username
-            session['login_time'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-            session['last_activity'] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            session['login_time'] = session['last_activity'] = datetime.now().strftime(DATE_FMT_DE)
             flash('Sie wurden erfolgreich angemeldet', 'success')
             return redirect(url_for('dashboard'))
         else:
@@ -386,78 +233,37 @@ def login():
 @app.route('/logout')
 def logout():
     session.clear()
-    flash(f'Du wurdest erfolgreich abgemeldet')
+    flash('Du wurdest erfolgreich abgemeldet')
     return redirect(url_for('login'))
 
 
 @app.route('/inventory', methods=['GET'])
 def get_inventory():
     """Zeigt die Software-Inventarliste an"""
-    if 'username' not in session:
-        return redirect(url_for('login'))
     log_request("INVENTORY_ACCESS")
 
-    def get_data_from_database():
-        conn = db_manager.connect_db()
-        cursor = conn.cursor()
+    columns, rows = db_manager.fetch_all(f"SELECT * FROM dbo.{db_manager.table_name}")
+    inventory = [dict(zip(columns, row)) for row in rows]
 
-        cursor.execute(f"SELECT * FROM {db_manager.table_name}")
-        columns = [column[0] for column in cursor.description]
-
-        cursor.execute(f"SELECT * FROM {db_manager.table_name}")
-        rows = cursor.fetchall()
-
-        inventory = [dict(zip(columns, row)) for row in rows]
-        return inventory
-
-    data = get_data_from_database()
-
-    return render_template('inventory.html', inventory=data)
+    return render_template('inventory.html', inventory=inventory)
 
 
 @app.route('/run-inventory', methods=['GET', 'POST'])
 @auth.login_required
 def run_inventory():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
     if not global_vars.service_active.is_set():
-        return render_template("403.html")
+        return render_template("403.html"), 403
 
-    # Prüfe, ob bereits eine Inventur läuft
-    if global_vars.is_running:
-        return redirect('/inventory-progress')
-
-    # Setze Variablen zurück
-    global_vars.inventory_start_time = datetime.now()
-    with global_vars.processed_hosts_lock:
-        global_vars.processed_hosts = 0
-    global_vars.is_running = True
-
-    # Starte Inventurprozess im Hintergrund
-    man_thread = threading.Thread(
-        target=run_and_record,
-        name="manual_inventory_thread",
-        daemon=True)
-    man_thread.start()
-
-    return redirect('/inventory-progress')
+    return launch_inventory()
 
 
 @app.route('/stop-service', methods=['POST'])
 @auth.login_required
 def stop_service():
-    if 'username' not in session:
-        return jsonify({"status": "error", "message": "Authentication required"}), 401
-
-    print(f"DEBUG: Stopping service - current global_vars: {global_vars.service_active.is_set()}")
-
     # Zuerst Datenbank, dann global_vars
-    success = db_manager.set_metadata("service_active", 0)
-    print(f"DEBUG: Database update success: {success}")
-
+    if not db_manager.set_metadata("service_active", 0):
+        return jsonify({"status": "error", "message": "Database update failed"}), 500
     global_vars.service_active.clear()
-    print(f"DEBUG: After stop - global_vars: {global_vars.service_active.is_set()}")
 
     logging.warning("Service wurde deaktiviert")
     return jsonify({"status": "stopping"})
@@ -466,17 +272,10 @@ def stop_service():
 @app.route('/start-service', methods=['POST'])
 @auth.login_required
 def start_service():
-    if 'username' not in session:
-        return jsonify({"status": "error", "message": "Authentication required"}), 401
-
-    print(f"DEBUG: Starting service - current global_vars: {global_vars.service_active.is_set()}")
-
     # Zuerst Datenbank, dann global_vars
-    success = db_manager.set_metadata("service_active", 1)
-    print(f"DEBUG: Database update success: {success}")
-
+    if not db_manager.set_metadata("service_active", 1):
+        return jsonify({"status": "error", "message": "Database update failed"}), 500
     global_vars.service_active.set()
-    print(f"DEBUG: After start - global_vars: {global_vars.service_active.is_set()}")
 
     logging.info("Service wurde aktiviert")
     return jsonify({"status": "started"})
@@ -486,8 +285,6 @@ def start_service():
 @auth.login_required
 def show_logs():
     """Zeigt Logdateien an"""
-    if 'username' not in session:
-        return jsonify({"status": "error", "message": "Authentication required"}), 401
     log_request("LOGS_ACCESS")
 
     requested_log = request.args.get('file')
@@ -502,7 +299,7 @@ def show_logs():
             return render_template('error.html', error="Log-Datei nicht gefunden"), 404
 
         try:
-            with open(os.path.join(LOG_DIR, requested_log), 'r') as f:
+            with open(os.path.join(LOG_DIR, requested_log), 'r', encoding='utf-8', errors='replace') as f:
                 content = f.read()
             return render_template('log_viewer.html', log_content=content, log_file=requested_log)
         except Exception as e:
@@ -526,59 +323,34 @@ def service_status():
 
     :return flask.render_template:
     """
-    if 'username' not in session:
-        return jsonify({"status": "error", "message": "Authentication required"}), 401
-
-    inventory_running = any(t.name == "manual_inventory_thread" for t in threading.enumerate())
+    # Ein Durchlauf über die Threadliste für beide Kennzahlen
+    threads = sum(1 for t in threading.enumerate() if t.name.startswith("manual"))
+    inventory_running = global_vars.is_running
 
     # Uptime berechnen
     uptime = datetime.now() - system_info['start_time']
-    days = uptime.days
     hours, remainder = divmod(uptime.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    uptime_str = f"{days} Tag(e), {hours} Stunde(n), {minutes} Minute(n), {seconds} Sekunde(n)"
+    uptime_str = f"{uptime.days} Tag(e), {hours} Stunde(n), {minutes} Minute(n), {seconds} Sekunde(n)"
 
-    connection = False
-
-    if db_manager.conn is not None:
-        connection = True
-
-    last_run = get_last_run()
-
-    service_active_db_2 = db_manager.get_metadata("service_active")
-    if service_active_db_2 == 1:
-        global_vars.service_active.set()
-    else:
-        global_vars.service_active.clear()
-    status_interval_weeks = int(db_manager.get_metadata("interval_weeks"))
-
-    next_run = db_manager.get_metadata("next_inventory_run")
-    next_run = next_run.strftime("%d.%m.%Y %H:%M:%S")
-
-    def get_active_man_threads_count():
-        return sum(1 for t in threading.enumerate() if t.name.startswith("manual"))
-
-    threads = get_active_man_threads_count()
+    service_active_db = sync_service_status()
 
     return render_template("status.html",
                            inventory_running=inventory_running,
-                           service_active=service_active_db_2,  # Verwende den DB-Wert
+                           service_active=service_active_db,  # Verwende den DB-Wert
                            system_info=system_info,
                            uptime=uptime_str,
-                           last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"),
-                           last_run=last_run,
-                           interval_weeks=status_interval_weeks,
+                           last_restart=system_info['start_time'].strftime(DATE_FMT_ISO),
+                           last_run=get_last_run(),
+                           interval_weeks=int(db_manager.get_metadata("interval_weeks") or 0),
                            threads=threads,
-                           connection=connection,
-                           next_run=next_run)
+                           connection=db_manager.conn is not None,
+                           next_run=format_dt(db_manager.get_metadata("next_inventory_run"), DATE_FMT_DE, "-"))
 
 
 @app.route('/account')
 def account():
     """Kontoübersicht für den angemeldeten Benutzer"""
-
-    if 'username' not in session:
-        return redirect(url_for('login'))
 
     # Hier könnten man zusätzliche Benutzerinformationen aus einer Datenbank abrufen
     username = session['username']
@@ -590,9 +362,6 @@ def account():
 @auth.login_required
 def settings():
     """Einstellungsseite für Anpassungen"""
-    if 'username' not in session:
-        return jsonify({"status": "error", "message": "Authentication required"}), 401
-
     interval_weeks = db_manager.get_metadata("interval_weeks")
 
     if request.method == 'POST':
@@ -619,8 +388,8 @@ def not_authorized(e):
 
 
 @app.errorhandler(403)
-def not_authorized(e):
-    return render_template('401.html', e=e), 403
+def forbidden(e):
+    return render_template('403.html', e=e), 403
 
 
 @app.errorhandler(404)
@@ -674,4 +443,4 @@ def check_drivers():
 
 @app.route('/reset-database')
 def reset_database():
-    print("Database reset was successful")
+    return jsonify({"error": "Not implemented"}), 501

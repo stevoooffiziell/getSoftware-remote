@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet
 import os
 
 # Verzeichnispfad
-key_path = "../config/secret.key"
+key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "secret.key")
 os.makedirs(os.path.dirname(key_path), exist_ok=True)
 
 # Benutzer-Passwort sicher abfragen
@@ -21,11 +21,9 @@ else:
     with open(key_path, "rb") as f:
         key = f.read()
     print(f"🔑 Bestehender Schluessel aus '{key_path}' wurde geladen.")
-    fernet = Fernet(key)
-
 
 # Verschlüsselung
-
+fernet = Fernet(key)
 encrypted = fernet.encrypt(password.encode())
 print("\nVerschlüsseltes Passwort (füge das in deine config.ini ein):")
 print(encrypted.decode())

@@ -1,15 +1,27 @@
-import os
-import warnings
-
-from json import JSONDecodeError
-
-import re
-import winrm
-import functions.DatabaseManager as dm
-import json
 import base64
 import configparser
+import json
+import os
+import re
+import warnings
+from functools import lru_cache
+from json import JSONDecodeError
 
+import winrm
+
+import functions.DatabaseManager as dm
+
+JSON_DIR = os.path.join(dm.PROJECT_ROOT, "json")
+
+
+@lru_cache(maxsize=None)
+def _load_ps_credentials(config_file):
+    """Liest und entschlüsselt die WinRM-Zugangsdaten nur einmal statt pro Host."""
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    user = config.get('ps-auth', 'user_ps')
+    pwd = dm.decrypt_password(config.get('ps-auth', 'pwd_ps'))
+    return user, pwd
 
 
 def parse_txt_to_json(raw_text: str):
@@ -39,12 +51,7 @@ def parse_txt_to_json(raw_text: str):
 
 class SoftwareInventoryWinRM:
     def __init__(self, host, config_file=None, transport='ntlm'):
-        if config_file is None:
-            # Pfad relativ zur aktuellen Datei (SoftwareInventoryWinRM.py)
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            config_file = os.path.join(current_dir, "..", "config", "config.ini")
-            config_file = os.path.normpath(config_file)
-            self.config_file = config_file
+        self.config_file = os.path.normpath(config_file or dm.DEFAULT_CONFIG_FILE)
         self.log = dm.DatabaseManager()
 
         # No more static strings up here
@@ -63,7 +70,7 @@ class SoftwareInventoryWinRM:
 
         pwsh_script = r"""
                     $software = Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* |
-                    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
+                    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate, EstimatedSize
 
                     $software += Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
                     Select-Object DisplayName, DisplayVersion, Publisher, InstallDate, EstimatedSize
@@ -105,12 +112,7 @@ class SoftwareInventoryWinRM:
         self.pwsh_script = pwsh_script
         self.pwsh_script_2008 = pwsh_script_2008
 
-        config = configparser.ConfigParser()
-        config.read(self.config_file)
-
-        encrypted_pwd_ps = config.get('ps-auth', 'pwd_ps')
-        self.user = config.get('ps-auth', 'user_ps')
-        self.pwd = dm.decrypt_password(encrypted_pwd_ps)
+        self.user, self.pwd = _load_ps_credentials(self.config_file)
         self.host = host
 
         try:
@@ -125,36 +127,34 @@ class SoftwareInventoryWinRM:
             self.log.logger.error(f"WinRM connection error to {host}: {str(e)}")
             raise ConnectionError(f"WinRM connection failed: {str(e)}")
 
-    def get_installed_software(self, output_file: str):
-        # Supress warnings for WinRM-parser
-        warnings.filterwarnings("ignore", category=UserWarning, module="winrm")
+    def get_installed_software(self, output_file: str = None):
+        """
+        Liest die installierte Software des Hosts aus.
+
+        :param output_file: Zielpfad der JSON-Kopie, Standard ``json/<host>_output.json``
+        :return: Liste der Software-Einträge
+        """
+        if not output_file:
+            output_file = os.path.join(JSON_DIR, f"{self.host}_output.json")
 
         # Due to incompatibility for win server 2008 in the powershell_script its necessary to check the OS-version.
-        os_check_script = "(Get-WmiObject Win32_OperatingSystem).Caption"
-        os_result = self.session.run_ps(os_check_script)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            os_result = self.session.run_ps("(Get-WmiObject Win32_OperatingSystem).Caption")
         os_name = os_result.std_out.decode('utf-8', errors='ignore').strip()
 
         if "2008" in os_name:
             print(f"{self.get_logprint_info()} {self.host} is a windows server 2008 system.\n"
                   f"{self.get_logprint_info()} Nutze Text-Ausgabe Methode.")
-            try:
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                output_file = os.path.join(current_dir, "..", "json", f"{self.host}_output.json")
-                json_dir = os.path.normpath(output_file)
-                # Temporarily disable warnings
-                self.warn_catch(self.pwsh_script_2008, output_file=f"{json_dir}")
-            except Exception as e:
-                raise ValueError(f"{self.get_logprint_error()} Processing or saving error: {e}")
+            script = self.pwsh_script_2008
         else:
             print(f"{self.get_logprint_info()} {self.host} is using modern windows OS. Using direct JSON-output")
-            try:
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                output_file = os.path.join(current_dir, "..", "json", f"{self.host}_output.json")
-                json_dir = os.path.normpath(output_file)
-                # Temporarily disable warnings
-                self.warn_catch(self.pwsh_script, output_file=f"{json_dir}")
-            except Exception as e:
-                raise ValueError(f"{self.get_logprint_error()} Processing or saving error: {e}")
+            script = self.pwsh_script
+
+        try:
+            return self.warn_catch(script, output_file=output_file)
+        except Exception as e:
+            raise ValueError(f"Processing or saving error: {e}") from e
 
     def warn_catch(self, script, output_file: str):
         with warnings.catch_warnings():
@@ -185,7 +185,9 @@ class SoftwareInventoryWinRM:
         for entry in software_list:
             entry["Hostname"] = self.host
 
-        # Write data only ONCE
+        # JSON-Kopie zur Nachvollziehbarkeit; die Daten selbst werden direkt zurückgegeben
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(software_list, f, indent=2, ensure_ascii=False)
-            print(f"{self.get_logprint_info()} Software with hostname has been saved to '{output_file}'")
+        print(f"{self.get_logprint_info()} Software with hostname has been saved to '{output_file}'")
+        return software_list
