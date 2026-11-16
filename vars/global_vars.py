@@ -6,7 +6,7 @@ from functions.DatabaseManager import DatabaseManager
 db = DatabaseManager()
 
 service_active = Event()
-service_active.set()  # Standardm‰ﬂig aktiviert
+service_active.set()
 
 def get_total_hosts():
     try:

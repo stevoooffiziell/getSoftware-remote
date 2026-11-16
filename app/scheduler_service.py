@@ -5,9 +5,11 @@ import threading
 import time
 from datetime import datetime, timedelta
 
+import functions.pwsh_processor
 import functions.pwsh_processor as _func
-from vars.global_vars import service_active
+import vars.global_vars as gv
 from functions.DatabaseManager import DatabaseManager
+from functions.pwsh_processor import process_csv
 
 # Logger konfigurieren
 logger = logging.getLogger('SchedulerService')
@@ -22,23 +24,26 @@ db_manager = DatabaseManager()
 
 
 def run_inventory():
-    """Führt die Inventur durch und aktualisiert Zeitstempel"""
-    if not service_active.is_set():
+    """
+    Führt die Inventur durch und aktualisiert Zeitstempel
+
+    :return:
+    """
+    if not gv.service_active.is_set():
         logger.info("Inventur übersprungen - Service deaktiviert")
         return False
 
     try:
         # Fortschrittsvariablen setzen
-        with globals.processed_hosts_lock:
-            globals.inventory_start_time = datetime.now()
-            globals.processed_hosts = 0
+        with gv.processed_hosts_lock:
+            gv.inventory_start_time = datetime.now()
+            gv.processed_hosts = 0
             with open('csv\\hosts.csv', 'r') as f:
-                globals.total_hosts = sum(1 for _ in csv.reader(f)) - 1
-            globals.is_running = True
+                gv.total_hosts = sum(1 for _ in csv.reader(f)) - 1
+            gv.is_running = True
 
         logger.info(f"Starting inventory at {datetime.now()}")
-        _func.main()
-        # Aktualisiere Zeitstempel
+        process_csv(db_manager)
         end_time = datetime.now()
         next_run = end_time + timedelta(weeks=db_manager.get_metadata("interval_weeks")[0] or 2)
 
@@ -46,10 +51,10 @@ def run_inventory():
         db_manager.set_metadata("next_inventory_run", next_run.strftime("%Y-%m-%d %H:%M:%S"))
 
         # Inventur erfolgreich beendet
-        with globals.processed_hosts_lock:
-            globals.last_run_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            globals.last_host_count = globals.processed_hosts
-            globals.is_running = False
+        with gv.processed_hosts_lock:
+            gv.last_run_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
+            gv.last_host_count = gv.processed_hosts
+            gv.is_running = False
 
         logger.info(f"Inventory completed at {datetime.now()}")
         return True
@@ -58,8 +63,8 @@ def run_inventory():
         return False
     finally:
         # Sicherstellen, dass Status zurückgesetzt wird
-        with globals.processed_hosts_lock:
-            globals.is_running = False
+        with gv.processed_hosts_lock:
+            gv.is_running = False
 
 def monitor_schedule():
     """Überwacht kontinuierlich den Inventarisierungszeitplan"""

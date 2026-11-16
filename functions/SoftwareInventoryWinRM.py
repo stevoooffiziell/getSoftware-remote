@@ -39,14 +39,20 @@ def parse_txt_to_json(raw_text: str):
 
 class SoftwareInventoryWinRM:
     def __init__(self, host, config_file=None, transport='ntlm'):
-        self.config_file = config_file
-        config_file = os.path.join("../config", "config.ini")
+        if config_file is None:
+            # Pfad relativ zur aktuellen Datei (SoftwareInventoryWinRM.py)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            config_file = os.path.join(current_dir, "..", "config", "config.ini")
+            config_file = os.path.normpath(config_file)
+            self.config_file = config_file
         self.log = dm.DatabaseManager()
+
         # No more static strings up here
         self.info = self.log.info
         self.debug = self.log.debug
         self.warning = self.log.warning
         self.error = self.log.error
+
         # import dynamic time updates from DatabaseManager
         self.get_logprint_info = self.log.get_logprint_info
         self.get_logprint_debug = self.log.get_logprint_debug
@@ -100,7 +106,7 @@ class SoftwareInventoryWinRM:
         self.pwsh_script_2008 = pwsh_script_2008
 
         config = configparser.ConfigParser()
-        config.read(config_file)
+        config.read(self.config_file)
 
         encrypted_pwd_ps = config.get('ps-auth', 'pwd_ps')
         self.user = config.get('ps-auth', 'user_ps')
@@ -112,8 +118,8 @@ class SoftwareInventoryWinRM:
                 target=self.host,
                 auth=(self.user, self.pwd),
                 transport=transport,
-                read_timeout_sec=30,  # Timeout hinzufügen
-                operation_timeout_sec=20
+                read_timeout_sec=15,  # Timeout hinzufügen
+                operation_timeout_sec=10
             )
         except Exception as e:
             self.log.logger.error(f"WinRM connection error to {host}: {str(e)}")
@@ -132,15 +138,21 @@ class SoftwareInventoryWinRM:
             print(f"{self.get_logprint_info()} {self.host} is a windows server 2008 system.\n"
                   f"{self.get_logprint_info()} Nutze Text-Ausgabe Methode.")
             try:
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                output_file = os.path.join(current_dir, "..", "json", f"{self.host}_output.json")
+                json_dir = os.path.normpath(output_file)
                 # Temporarily disable warnings
-                self.warn_catch(self.pwsh_script_2008, output_file=f"json\\{self.host}_output.json" )
+                self.warn_catch(self.pwsh_script_2008, output_file=f"{json_dir}")
             except Exception as e:
                 raise ValueError(f"{self.get_logprint_error()} Processing or saving error: {e}")
         else:
             print(f"{self.get_logprint_info()} {self.host} is using modern windows OS. Using direct JSON-output")
             try:
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                output_file = os.path.join(current_dir, "..", "json", f"{self.host}_output.json")
+                json_dir = os.path.normpath(output_file)
                 # Temporarily disable warnings
-                self.warn_catch(self.pwsh_script, output_file=f"json\\{self.host}_output.json")
+                self.warn_catch(self.pwsh_script, output_file=f"{json_dir}")
             except Exception as e:
                 raise ValueError(f"{self.get_logprint_error()} Processing or saving error: {e}")
 

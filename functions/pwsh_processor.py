@@ -1,15 +1,18 @@
 # -*-coding: utf-8 -*-
 import json
 import csv
+import os
+
 from functions.DatabaseManager import DatabaseManager
 from functions.SoftwareInventoryWinRM import SoftwareInventoryWinRM
-import vars.global_vars
+from vars import global_vars
 
 db_instance: DatabaseManager = DatabaseManager()
 
 def process_csv(db_inst):
+    hosts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "csv", "hosts.csv"))
     first = True
-    with open("../csv/hosts.csv", newline='', encoding="utf-8") as csvfile:
+    with open(hosts_dir, newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
             if first:
@@ -21,26 +24,32 @@ def process_csv(db_inst):
             except Exception as e:
                 print(f"{db_inst.get_logprint_error()} Fehler bei Host {hostname}: {e}")
             # Host-Zähler nach jeder Verarbeitung erhöhen
-            with globals.processed_hosts_lock:
-                globals.processed_hosts += 1
-                print(f"Verarbeiteter Host: {hostname} ({globals.processed_hosts}/{globals.total_hosts})")
+            with global_vars.processed_hosts_lock:
+                global_vars.processed_hosts += 1
+                print(f"{db_inst.get_logprint_info()} Verarbeiteter Host: {hostname} ({global_vars.processed_hosts}/{global_vars.total_hosts})")
 
 def process_host(hostname, db_inst):
     client = SoftwareInventoryWinRM(
         host=hostname
     )
-    json_path = f"json\\{hostname}_output.json"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_dir = os.path.join(current_dir, "..", "json", f"{hostname}_output.json")
+    json_dir = os.path.normpath(json_dir)
     db_inst.logger.info(f"Processing {hostname}...")
     print(f"\n{db_inst.get_logprint_info()} Processing {hostname}...")
 
     try:
-        client.get_installed_software(json_path)
+        client.get_installed_software(json_dir)
     except Exception as e:
         print(f"{db_inst.get_logprint_error()} Failed executing script on {hostname}: {e}")
-        db_inst.logger.error(f"Failed to execute powershell script on {hostname}: {e}")
+        if str(e).startswith("the specified credentials"):
+            db_inst.logger.error(f"The specified credentials were incorrect")
+        else:
+            db_inst.logger.error(f"Failed to execute powershell script on {hostname}: {e}")
+
 
     try:
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(json_dir, "r", encoding="utf-8") as f:
             software_list = json.load(f)
 
     except Exception as e:
@@ -57,8 +66,3 @@ def process_host(hostname, db_inst):
 
     except Exception as e:
         print(f"{db_inst.get_logprint_error()} Error inserting data into database for {hostname}: {e}")
-
-
-
-def main():
-    process_csv(db_instance)
