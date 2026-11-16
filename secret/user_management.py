@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 from getpass import getpass
 
 from secret.pwd_management import USER_DETAILS_FILEPATH
@@ -17,38 +18,32 @@ def save_user(username, hashed_pwd):
     with open(USER_DETAILS_FILEPATH, 'a') as f:
         f.write(f"{username} {hashed_pwd}\n")
 
-def user_exists(username):
+def _find_user(username):
+    """Liefert den gespeicherten ``salt$hash``-Wert des Benutzers oder ``None``."""
     try:
         with open(USER_DETAILS_FILEPATH, 'r') as f:
             for line in f:
                 parts = line.split()
-                if parts[0] == username:
-                    return True
+                if len(parts) >= 2 and parts[0] == username:
+                    return parts[1]
     except FileNotFoundError as fl_err:
         print(f"{fl_err.args[-1]}: {USER_DETAILS_FILEPATH}")
-        print(f"System will create file: {USER_DETAILS_FILEPATH}")
-    return False
+    return None
+
+
+def user_exists(username):
+    return _find_user(username) is not None
+
 
 def user_auth(username, password):
-    try:
-        with open(USER_DETAILS_FILEPATH, 'r') as f:
-            for line in f:
-                parts = line.split()
-                if parts[0] == username:
-                    # Split salt and hash from stored value
-                    salt, stored_hash = parts[1].split('$')
+    stored = _find_user(username)
+    if not stored or '$' not in stored:
+        return False
 
-                    # Hash the input password with the same salt
-                    pwd_bytes = (salt + password).encode('utf-8')
-                    input_hash = hashlib.sha256(pwd_bytes).hexdigest()
-
-                    if input_hash == stored_hash:
-                        return True
-                    else:
-                        return False
-                return False
-    except FileNotFoundError as fl_err:
-        print(f"{fl_err.args[-1]}: {USER_DETAILS_FILEPATH}")
+    # Hash the input password with the same salt
+    salt, stored_hash = stored.split('$', 1)
+    input_hash = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+    return hmac.compare_digest(input_hash, stored_hash)
 
 '''password_test = "password123"
 salt = "randomsaltvalue"
