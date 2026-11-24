@@ -294,7 +294,11 @@ class DatabaseManager:
 
     # ---------------------------------------------------------------- Inventar
     def insert_software(self, software_list, hostname):
-        """Schreibt die Software-Liste eines Hosts in die Datenbank."""
+        """Ersetzt die Software-Liste eines Hosts in der Datenbank.
+
+        Alte Einträge des Hosts werden in derselben Transaktion gelöscht, sodass bei
+        einem Fehler die bisherigen Daten erhalten bleiben.
+        """
         query = (f"INSERT INTO [{self.table_name}] "
                  f"(name, publisher, installDate, programSize, version, hostname, isNew) "
                  f"VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -322,16 +326,33 @@ class DatabaseManager:
             with db_lock:
                 conn = self.connect_db()
                 cursor = conn.cursor()
+                cursor.execute(f"DELETE FROM [{self.table_name}] WHERE hostname = ?", hostname)
+                deleted = cursor.rowcount
                 cursor.fast_executemany = True
                 cursor.executemany(query, rows)
                 conn.commit()
-            self.logger.info(f"Inserted {len(rows)} records for {hostname}")
-            print(f"{self.get_logprint_info()} Inserted {len(rows)} items for {hostname}")
+            self.logger.info(f"Replaced {deleted} with {len(rows)} records for {hostname}")
+            print(f"{self.get_logprint_info()} Replaced {deleted} with {len(rows)} items for {hostname}")
         except Exception as e:
             self.logger.error(f"Insert failed for {hostname}: {e}")
             if self.conn:
                 self.conn.rollback()
             raise
+
+    def delete_hosts_not_in(self, hostnames) -> int:
+        """Löscht die Einträge aller Hosts, die nicht (mehr) in ``hostnames`` stehen."""
+        keep = {h.lower() for h in hostnames}
+        with db_lock:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT DISTINCT hostname FROM [{self.table_name}]")
+            stale = [row[0] for row in cursor.fetchall() if (row[0] or '').lower() not in keep]
+            for host in stale:
+                cursor.execute(f"DELETE FROM [{self.table_name}] WHERE hostname = ?", host)
+            conn.commit()
+        if stale:
+            self.logger.info(f"Removed records of hosts no longer in host list: {stale}")
+        return len(stale)
 
     def delete_inventory(self):
         """Löscht alle Einträge aus der Inventartabelle."""

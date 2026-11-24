@@ -13,8 +13,18 @@ def read_hostnames(path: str = HOSTS_CSV) -> list:
 
 
 def process_csv(db_inst):
-    """Inventarisiert alle Hosts aus der Host-CSV nacheinander."""
-    for hostname in read_hostnames():
+    """Inventarisiert alle Hosts aus der Host-CSV nacheinander.
+
+    Die Daten jedes Hosts werden beim Einfügen ersetzt; Hosts, die nicht mehr in
+    der CSV stehen, werden vorab aus der Datenbank entfernt.
+    """
+    hostnames = read_hostnames()
+    if hostnames:
+        removed = db_inst.delete_hosts_not_in(hostnames)
+        if removed:
+            print(f"{db_inst.get_logprint_info()} Daten von {removed} nicht mehr gelisteten Hosts gelöscht.")
+
+    for hostname in hostnames:
         try:
             process_host(hostname, db_inst)
         except Exception as e:
