@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""Scannt /24-Subnetze und schreibt gefundene Hostnamen in host-test.csv.
+
+Aufruf: ``python -m functions.scan_network_hostnames 10.100.13 [10.100.14 ...]``
+"""
+import argparse
 import socket
 import subprocess
 import threading
@@ -5,17 +11,6 @@ import logging
 import time
 import struct
 import os
-
-# Logger konfigurieren
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%d-%m-%Y %H:%M:%S',
-    handlers=[
-        logging.FileHandler("logs\\scan_network.log"),
-        logging.StreamHandler()
-    ]
-)
 
 # Globale Menge für eindeutige Einträge
 all_entries = set()
@@ -128,3 +123,22 @@ def scan_network(subnet, logfile):
             f.write(hostname + "\n")
 
     logging.info(f"[SCAN] Scan für Subnetz {subnet}.0/24 abgeschlossen. Ergebnisse in {logfile}")
+
+
+if __name__ == '__main__':
+    from vars.paths import LOG_DIR
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%d-%m-%Y %H:%M:%S',
+        handlers=[logging.FileHandler(os.path.join(LOG_DIR, "scan_network.log"), encoding="utf-8"),
+                  logging.StreamHandler()]
+    )
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("subnets", nargs="+", help="Subnetz-Präfix, z.B. 10.100.13")
+    args = parser.parse_args()
+
+    load_existing_entries()
+    for net in args.subnets:
+        scan_network(net, os.path.join(LOG_DIR, f"scan_{net}.log"))

@@ -1,124 +1,89 @@
 # -*- coding: utf-8 -*-
-import csv
+"""Inventurlauf (manuell und zeitgesteuert)."""
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta
 
-import functions.pwsh_processor
-import functions.pwsh_processor as _func
 import vars.global_vars as gv
 from functions.DatabaseManager import DatabaseManager
 from functions.pwsh_processor import process_csv
+from vars.paths import LOG_DIR
 
-# Logger konfigurieren
+INVENTORY_THREAD_NAME = "manual_inventory_thread"
+DEFAULT_INTERVAL_WEEKS = 2
+
 logger = logging.getLogger('SchedulerService')
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler('logs/scheduler.log')
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+if not logger.handlers:
+    _handler = logging.FileHandler(os.path.join(LOG_DIR, 'scheduler.log'), encoding="utf-8")
+    _handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(_handler)
 
-# DatabaseManager-Instanz
 db_manager = DatabaseManager()
 
 
 def run_inventory():
-    """
-    Führt die Inventur durch und aktualisiert Zeitstempel
-
-    :return:
-    """
-    if not gv.service_active.is_set():
-        logger.info("Inventur übersprungen - Service deaktiviert")
-        return False
-
+    """Führt eine komplette Inventur aus und aktualisiert die Metadaten."""
     try:
-        # Fortschrittsvariablen setzen
-        with gv.processed_hosts_lock:
-            gv.inventory_start_time = datetime.now()
-            gv.processed_hosts = 0
-            with open('csv\\hosts.csv', 'r') as f:
-                gv.total_hosts = sum(1 for _ in csv.reader(f)) - 1
-            gv.is_running = True
+        start = datetime.now()
+        db_manager.set_metadata("last_inventory_start", start)
+        logger.info(f"Starting inventory at {start}")
 
-        logger.info(f"Starting inventory at {datetime.now()}")
         process_csv(db_manager)
-        end_time = datetime.now()
-        next_run = end_time + timedelta(weeks=db_manager.get_metadata("interval_weeks")[0] or 2)
 
-        db_manager.set_metadata("last_inventory_start", end_time.strftime("%Y-%m-%d %H:%M:%S"))
-        db_manager.set_metadata("next_inventory_run", next_run.strftime("%Y-%m-%d %H:%M:%S"))
+        end = datetime.now()
+        interval = db_manager.get_metadata("interval_weeks") or DEFAULT_INTERVAL_WEEKS
+        db_manager.set_metadata("last_end_time", end)
+        db_manager.set_metadata("next_inventory_run", start + timedelta(weeks=int(interval)))
 
-        # Inventur erfolgreich beendet
         with gv.processed_hosts_lock:
-            gv.last_run_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
+            gv.last_run_time = end
             gv.last_host_count = gv.processed_hosts
-            gv.is_running = False
-
-        logger.info(f"Inventory completed at {datetime.now()}")
+        logger.info(f"Inventory completed at {end}")
         return True
     except Exception as e:
-        logger.error(f"Inventory error: {str(e)}")
+        logger.error(f"Inventory error: {e}")
         return False
     finally:
-        # Sicherstellen, dass Status zurückgesetzt wird
         with gv.processed_hosts_lock:
             gv.is_running = False
+            gv.inventory_start_time = None
 
-def monitor_schedule():
-    """Überwacht kontinuierlich den Inventarisierungszeitplan"""
+
+def start_inventory_thread() -> bool:
+    """Startet eine Inventur im Hintergrund. ``False``, wenn bereits eine läuft."""
+    with gv.processed_hosts_lock:
+        if gv.is_running:
+            return False
+        gv.is_running = True
+        gv.inventory_start_time = datetime.now()
+        gv.processed_hosts = 0
+        gv.total_hosts = gv.get_total_hosts()
+
+    threading.Thread(target=run_inventory, name=INVENTORY_THREAD_NAME, daemon=True).start()
+    return True
+
+
+def monitor_schedule(check_interval: int = 300):
+    """Prüft regelmäßig, ob die nächste geplante Inventur fällig ist."""
     logger.info("Inventory schedule monitor started")
-
     while True:
         try:
-            # Hole Zeitstempel aus der Datenbank
-            last_run_value = db_manager.get_metadata("last_inventory_start")[0]
-            next_run_value = db_manager.get_metadata("next_inventory_run")[0]
-            service_active_value = db_manager.get_metadata("service_active")[0]
-
-            logger.debug(f"DB values - last: {last_run_value}, next: {next_run_value}, active: {service_active_value}")
-
-            # Prüfe ob Service aktiv ist
-            if service_active_value != "1":
-                logger.debug("Service ist deaktiviert - überspringe Prüfung")
-                time.sleep(60)
-                continue
-
-            # Konvertiere zu datetime-Objekten
-            next_run = None
-            if next_run_value and next_run_value != "None":
-                try:
-                    next_run = datetime.strptime(str(next_run_value), "%Y-%m-%d %H:%M:%S")
-                except Exception as e:
-                    logger.error(f"Fehler beim Parsen von next_run: {str(e)}")
-
-            # Prüfe ob Inventur benötigt wird
-            try:
-                if next_run and datetime.now() >= next_run:
-                    logger.info("Scheduled inventory time reached, starting inventory...")
-                    run_inventory()
-                else:
-                    if next_run:
-                        logger.debug(f"Next run: {next_run} (noch nicht erreicht)")
-                    else:
-                        logger.debug("Kein nächster Laufzeitpunkt gesetzt")
-            except Exception as e:
-                logger.error(f"Fehler beim Starten von run-inventory: {str(e)}")
-
-            time.sleep(300)  # Prüfe alle 5 Minuten
-
+            next_run = db_manager.get_metadata("next_inventory_run")
+            if (gv.service_active.is_set()
+                    and db_manager.get_metadata("service_active") == 1
+                    and isinstance(next_run, datetime)
+                    and datetime.now() >= next_run):
+                logger.info("Scheduled inventory time reached, starting inventory...")
+                start_inventory_thread()
         except Exception as e:
-            logger.error(f"Schedule monitoring error: {str(e)}")
-            time.sleep(600)  # Bei Fehler 10 Minuten warten
+            logger.error(f"Schedule monitoring error: {e}")
+        time.sleep(check_interval)
+
 
 def start_periodic_inventory():
-    """Startet alle Scheduler-Komponenten"""
-    # Starte Monitor-Thread
-    monitor_thread = threading.Thread(
-        target=monitor_schedule,
-        name="inventory_monitor",
-        daemon=True
-    )
-    monitor_thread.start()
+    """Startet den Hintergrund-Thread für die zeitgesteuerte Inventur."""
+    threading.Thread(target=monitor_schedule, name="inventory_monitor", daemon=True).start()
     logger.info("Inventory schedule monitor thread started")

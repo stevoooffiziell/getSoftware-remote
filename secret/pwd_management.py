@@ -1,44 +1,23 @@
 # -*- coding: utf-8 -*-
-
 import hashlib
+import hmac
 import os
-import secrets
-import string
 
-USER_DETAILS_FILEPATH = ".\\users.txt"
-PUNCTUATIONS = '!"§$%&@€#-_'
 
-DEFAULT_PASSWORD_LENGTH = 12
+def _sha256(salt: str, pwd: str) -> str:
+    return hashlib.sha256((salt + pwd).encode('utf-8')).hexdigest()
 
-INVALID_PASSWORD_ERROR =    f'''
-                            Password length must be between 12 and 24.
-                            Password length must be a number.
-                            Generating password with default length of {DEFAULT_PASSWORD_LENGTH} characters.
-                            '''
 
-'''def generate_password(length=DEFAULT_PASSWORD_LENGTH):
-    """
-    Generate password with given length.
-
-    :param length:
-    :return:
-    """
-    chars = string.ascii_letters + string.digits + PUNCTUATIONS
-    pwd = ''.join(secrets.choice(chars) for _ in range(length))
-    return pwd'''
-
-def hash_password(pwd):
-    """
-    Hash password using sha256 hashing algorithm with salt.
-
-    :param pwd:
-    :return:
-    """
-
-    # Generate random salt
+def hash_password(pwd: str) -> str:
+    """Hasht ein Passwort mit SHA-256 und zufälligem Salt (Format ``salt$hash``)."""
     salt = os.urandom(16).hex()
+    return f"{salt}${_sha256(salt, pwd)}"
 
-    # Combine salt and pass, then hash
-    pwd_bytes = (salt + pwd).encode('utf-8')
-    hashed_pwd = hashlib.sha256(pwd_bytes).hexdigest()
-    return f"{salt}${hashed_pwd}"
+
+def verify_password(pwd: str, stored: str) -> bool:
+    """Prüft ein Passwort gegen einen gespeicherten ``salt$hash``-Wert."""
+    try:
+        salt, stored_hash = stored.split('$', 1)
+    except ValueError:
+        return False
+    return hmac.compare_digest(_sha256(salt, pwd), stored_hash)

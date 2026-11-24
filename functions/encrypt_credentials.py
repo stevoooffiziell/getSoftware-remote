@@ -1,31 +1,31 @@
 # -*- coding: utf-8 -*-
+"""Verschlüsselt ein Passwort für die config.ini.
+
+Aufruf: ``python -m functions.encrypt_credentials``
+"""
 import getpass
-from cryptography.fernet import Fernet
 import os
 
-# Verzeichnispfad
-key_path = "../config/secret.key"
-os.makedirs(os.path.dirname(key_path), exist_ok=True)
+from cryptography.fernet import Fernet
 
-# Benutzer-Passwort sicher abfragen
-password = getpass.getpass("Bitte Passwort eingeben: ")
-print("✅ Passwort wurde erfasst.")
+from vars.paths import SECRET_KEY_FILE
 
-# Schlüssel generieren oder bestehenden wiederverwenden
-if not os.path.exists(key_path):
+
+def load_or_create_key(key_path: str = SECRET_KEY_FILE) -> bytes:
+    if os.path.exists(key_path):
+        with open(key_path, "rb") as f:
+            print(f"Bestehender Schlüssel aus '{key_path}' wurde geladen.")
+            return f.read()
+    os.makedirs(os.path.dirname(key_path), exist_ok=True)
     key = Fernet.generate_key()
     with open(key_path, "wb") as f:
         f.write(key)
-    print(f"🔑 Neuer Schluessel wurde unter '{key_path}' gespeichert.")
-else:
-    with open(key_path, "rb") as f:
-        key = f.read()
-    print(f"🔑 Bestehender Schluessel aus '{key_path}' wurde geladen.")
-    fernet = Fernet(key)
+    print(f"Neuer Schlüssel wurde unter '{key_path}' gespeichert.")
+    return key
 
 
-# Verschlüsselung
-
-encrypted = fernet.encrypt(password.encode())
-print("\nVerschlüsseltes Passwort (füge das in deine config.ini ein):")
-print(encrypted.decode())
+if __name__ == '__main__':
+    password = getpass.getpass("Bitte Passwort eingeben: ")
+    encrypted = Fernet(load_or_create_key()).encrypt(password.encode())
+    print("\nVerschlüsseltes Passwort (in die config.ini eintragen):")
+    print(encrypted.decode())
