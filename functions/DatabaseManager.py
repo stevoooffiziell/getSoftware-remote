@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime
 
 import pyodbc
@@ -13,6 +14,13 @@ from cryptography.fernet import Fernet
 from vars.paths import CONFIG_FILE, LOG_DIR, SECRET_KEY_FILE
 
 db_lock = threading.RLock()
+
+CONNECT_TIMEOUT_SEC = 5     # Abbruch eines einzelnen Verbindungsversuchs
+RETRY_COOLDOWN_SEC = 30     # Wartezeit nach einem Fehlschlag bis zum nächsten Versuch
+
+
+class DatabaseUnavailableError(ConnectionError):
+    """Die Datenbank ist (derzeit) nicht erreichbar."""
 
 # Spalten der Tabelle service_metadata, die gelesen/geschrieben werden dürfen
 METADATA_KEYS = {
@@ -170,11 +178,18 @@ class DatabaseManager:
 
         self._init_logger()
         self.conn = None
-        self.connect_db()
-        self._ensure_tables()
+        self._tables_ready = False
+        self._last_failure = 0.0
         self._initialized = True
         self.logger.info("DatabaseManager initialized")
-        print(f"{self.get_logprint_info()} Database connection established.")
+
+        # Erster Verbindungsversuch; schlägt er fehl, startet die App trotzdem
+        # und verbindet sich beim nächsten Zugriff erneut.
+        if self.is_connected():
+            print(f"{self.get_logprint_info()} Database connection established.")
+        else:
+            print(f"{self.get_logprint_warning()} Database not reachable - starting without database, "
+                  f"retrying on next access.")
 
     # ------------------------------------------------------------------ Logging
     def _init_logger(self):
@@ -210,7 +225,10 @@ class DatabaseManager:
 
     # --------------------------------------------------------------- Verbindung
     def connect_db(self):
-        """Gibt eine gültige DB-Verbindung zurück und baut sie bei Bedarf neu auf."""
+        """Gibt eine gültige DB-Verbindung zurück und baut sie bei Bedarf neu auf.
+
+        :raises DatabaseUnavailableError: wenn die Datenbank nicht erreichbar ist
+        """
         with db_lock:
             if self.conn is not None:
                 try:
@@ -219,22 +237,37 @@ class DatabaseManager:
                 except pyodbc.Error:
                     self.logger.warning("Existing connection invalid, reconnecting...")
                     self.conn = None
+
+            # Nach einem Fehlschlag nicht bei jedem Zugriff erneut warten
+            wait = RETRY_COOLDOWN_SEC - (time.monotonic() - self._last_failure)
+            if self._last_failure and wait > 0:
+                raise DatabaseUnavailableError(f"Datenbank nicht erreichbar (nächster Versuch in {wait:.0f} s)")
+
             try:
-                self.conn = pyodbc.connect(self.connection_str, autocommit=False)
-                self.logger.info("Database connection established successfully")
-                print(f"{self.get_logprint_info()} Connected to database {self.db}")
+                conn = pyodbc.connect(self.connection_str, autocommit=False, timeout=CONNECT_TIMEOUT_SEC)
+                if not self._tables_ready:
+                    conn.execute(METADATA_TABLE_QUERY)
+                    conn.execute(create_table_query(self.table_name))
+                    conn.commit()
+                    self._tables_ready = True
+                    self.logger.info(f"Checked/created tables service_metadata and {self.table_name}")
             except pyodbc.Error as e:
+                self._last_failure = time.monotonic()
                 self.logger.error(f"Connection failed: {e}")
                 print(f"{self.get_logprint_error()} Database connection failed: {e}")
-                self.conn = None
-                raise
+                raise DatabaseUnavailableError("Datenbank nicht erreichbar") from e
+
+            self.conn = conn
+            self._last_failure = 0.0
+            self.logger.info("Database connection established successfully")
+            print(f"{self.get_logprint_info()} Connected to database {self.db}")
             return self.conn
 
     def is_connected(self) -> bool:
         try:
             self.connect_db()
             return True
-        except pyodbc.Error:
+        except DatabaseUnavailableError:
             return False
 
     def close(self):
@@ -242,18 +275,6 @@ class DatabaseManager:
             self.conn.close()
             self.conn = None
             self.logger.info(f"Connection to database {self.db} closed.")
-
-    def _ensure_tables(self):
-        try:
-            with db_lock:
-                conn = self.connect_db()
-                conn.execute(METADATA_TABLE_QUERY)
-                conn.execute(create_table_query(self.table_name))
-                conn.commit()
-                self.logger.info(f"Checked/created tables service_metadata and {self.table_name}")
-        except Exception as e:
-            self.logger.error(f"Table creation failed: {e}")
-            raise
 
     def fetch_one(self, query: str, *params):
         with db_lock:

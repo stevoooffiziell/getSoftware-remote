@@ -15,6 +15,7 @@ from flask_httpauth import HTTPBasicAuth
 
 import vars.global_vars as global_vars
 from app.scheduler_service import INVENTORY_THREAD_NAME, db_manager, start_inventory_thread
+from functions.DatabaseManager import DatabaseUnavailableError
 from secret.user_management import user_auth
 from vars.paths import LOG_DIR
 
@@ -53,11 +54,12 @@ def sync_service_status():
     return value
 
 
-try:
+if db_manager.is_connected():
     _active = sync_service_status()
     print(f"Service status synchronized from database: {'Active' if _active == 1 else 'Inactive'}")
-except Exception as e:
-    print(f"Error synchronizing service status: {e}")
+else:
+    global_vars.service_active.clear()
+    print("Service status: Inactive (database not reachable)")
 
 print("\n" + "=" * 80)
 print("Software Inventory Service gestartet")
@@ -260,8 +262,10 @@ def service_status():
     hours, remainder = divmod(uptime.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     threads = sum(1 for t in threading.enumerate() if t.name == INVENTORY_THREAD_NAME)
+    connection = db_manager.is_connected()
 
     return render_template("status.html",
+                           error=None if connection else "Datenbank nicht erreichbar – Werte können fehlen.",
                            inventory_running=threads > 0,
                            service_active=sync_service_status(),
                            system_info=system_info,
@@ -269,9 +273,9 @@ def service_status():
                                   f"{minutes} Minute(n), {seconds} Sekunde(n)",
                            last_restart=system_info['start_time'].strftime("%Y-%m-%d %H:%M:%S"),
                            last_run=format_dt(db_manager.get_metadata("last_inventory_start")),
-                           interval_weeks=db_manager.get_metadata("interval_weeks"),
+                           interval_weeks=db_manager.get_metadata("interval_weeks") or "-",
                            threads=threads,
-                           connection=db_manager.is_connected(),
+                           connection=connection,
                            next_run=format_dt(db_manager.get_metadata("next_inventory_run"), default="-"))
 
 
@@ -314,6 +318,17 @@ def forbidden(e):
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html', e=e), 404
+
+
+@app.errorhandler(DatabaseUnavailableError)
+def database_unavailable(e):
+    logging.error(f"Database unavailable for {request.path}: {e}")
+    if request.path.startswith(('/start-service', '/stop-service', '/reset-database', '/inventory-progress-data')):
+        return jsonify({"status": "error", "message": str(e)}), 503
+    return render_template('error.html', code=503, title="Datenbank nicht erreichbar",
+                           error=f"{e}. Die Seite benötigt die Datenbank. Bitte später erneut versuchen "
+                                 f"oder auf der Statusseite den Verbindungsstatus prüfen.",
+                           back_url=url_for('service_status')), 503
 
 
 @app.errorhandler(500)

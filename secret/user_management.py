@@ -3,6 +3,7 @@
 
 Neuen Benutzer anlegen: ``python -m secret.user_management``
 """
+import os
 from getpass import getpass
 
 from secret.pwd_management import hash_password, verify_password
@@ -35,8 +36,14 @@ def register(username: str, password: str) -> bool:
     if user_exists(username):
         print(f"User {username} already exists")
         return False
+    # Fehlenden Zeilenumbruch am Dateiende ergänzen, sonst landet der Eintrag in der letzten Zeile
+    needs_newline = False
+    if os.path.exists(USERS_FILE) and os.path.getsize(USERS_FILE) > 0:
+        with open(USERS_FILE, 'rb') as f:
+            f.seek(-1, os.SEEK_END)
+            needs_newline = f.read(1) not in (b'\n', b'\r')
     with open(USERS_FILE, 'a', encoding='utf-8') as f:
-        f.write(f"{username} {hash_password(password)}\n")
+        f.write(f"{chr(10) if needs_newline else ''}{username} {hash_password(password)}\n")
     print(f"User {username} registered")
     return True
 
